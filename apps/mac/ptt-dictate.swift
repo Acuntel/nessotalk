@@ -6,6 +6,7 @@ import Carbon.HIToolbox
 import CoreAudio
 import AudioToolbox
 import CoreMedia
+import CryptoKit
 
 // ===================== Paths =====================
 let HOME = NSHomeDirectory()
@@ -95,15 +96,19 @@ struct Config {
     // like POLISH_APPS) rewrites the gist into clean text/email prose
     // automatically — Wispr-style tone-by-app. Empty disables.
     var proApps = "mobilesms,messages,mail,outlook,whatsapp,telegram,slack,discord"
-    // v8.1 mode-first stop: the stop tap only lands after a delivery mode is
-    // picked on the pill (Summarize/Normal/Professional); Esc cancels. 0
-    // restores the old flow (stop anytime, popup/auto per POLISH_ASK/PRO_APPS).
-    var modeRequired = true
+    // v8.3 stop-anytime: the stop tap ALWAYS lands. DEFAULT_MODE is what a stop
+    // with NO chip clicked delivers: summarize | professional | normal | ask
+    // ("ask" restores the v7.5 popup flow). Chips are optional overrides.
+    var defaultMode = "summarize"
     // v8.2 lease: customer builds carry a LICENSE_KEY (from the nesso.tech
     // dashboard). The daemon checks in on launch + every 12h; revoked/expired
     // accounts disarm recording. Empty key = enforcement off (dev build).
     var licenseKey = ""
     var licenseUrl = "https://nesso.tech/api/license"
+    // Server-side AI proxy: with a license key set, the rewrite modes run on
+    // nesso.tech under our API key instead of needing the customer's own.
+    // A cracked copy can't reach it without an active license.
+    var polishProxyUrl = "https://nesso.tech/api/polish"
 
     static func load() -> Config {
         var c = Config()
@@ -148,6 +153,9 @@ struct Config {
             WHISPER_MODE=0
             # Auto-Professional apps (bundle-id substrings). Empty disables.
             PRO_APPS=mobilesms,messages,mail,outlook,whatsapp,telegram,slack,discord
+            # What a stop with NO chip clicked delivers: summarize | professional |
+            # normal | ask (ask restores the old popup flow)
+            DEFAULT_MODE=summarize
             """
             try? defaults.write(toFile: CONFIG_PATH, atomically: true, encoding: .utf8)
             return c
@@ -182,9 +190,10 @@ struct Config {
             case "LANGUAGE":           if !val.isEmpty { c.language = val.lowercased() }
             case "WHISPER_MODE":       c.whisperMode = (val == "1" || val.lowercased() == "true")
             case "PRO_APPS":           c.proApps = val
-            case "MODE_REQUIRED":      c.modeRequired = (val == "1" || val.lowercased() == "true")
+            case "DEFAULT_MODE":       if ["summarize", "professional", "normal", "raw", "ask"].contains(val.lowercased()) { c.defaultMode = val.lowercased() == "raw" ? "normal" : val.lowercased() }
             case "LICENSE_KEY":        c.licenseKey = val
             case "LICENSE_URL":        if !val.isEmpty { c.licenseUrl = val }
+            case "POLISH_PROXY_URL":   if !val.isEmpty { c.polishProxyUrl = val }
             default: break
             }
         }
@@ -1065,7 +1074,7 @@ final class UIController: NSObject {
         root.addSubview(wf)
         waveform = wf
 
-        let hint = NSTextField(labelWithString: "Pick a mode · Esc cancels")
+        let hint = NSTextField(labelWithString: "Right ⌘ stops · Esc cancels")
         hint.font = .systemFont(ofSize: 12, weight: .regular)
         hint.textColor = NSColor(calibratedWhite: 0.55, alpha: 1)
         hint.alignment = .right
@@ -1169,18 +1178,6 @@ final class UIController: NSObject {
                 .foregroundColor: sel ? NSColor.white : NSColor(calibratedWhite: 0.75, alpha: 1),
                 .paragraphStyle: center,
             ])
-        }
-    }
-
-    // Stop tap refused (no mode picked): pulse the chip row + show the hint.
-    func flashModeRow() {
-        setCaption("Pick one to finish: Summarize, Normal, or Professional. Esc cancels.")
-        for b in modeButtons.values {
-            b.layer?.borderColor = NSColor.white.withAlphaComponent(0.9).cgColor
-            b.layer?.borderWidth = 1.5
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            self?.modeButtons.values.forEach { $0.layer?.borderWidth = 0 }
         }
     }
 
@@ -1470,19 +1467,19 @@ Rewrite this dictated transcript into a clear, well-structured document for an A
 Output ONLY the rewritten text, no preamble, no commentary.
 """
 
-// "Professional" mode: dictated gist -> clean, proper prose ready to send as a
-// text message or email. Unlike POLISH_INSTRUCTION this may condense (a rambling
-// gist SHOULD tighten), so its trust gate is looser (see polishForText).
+// "Professional" mode (v8.3, Brady's spec): the speaker's OWN words with the
+// noise removed — a transcription cleanup, NOT a rewrite. Output length stays
+// close to the input minus fillers, so the trust gate is 1/2 (see polishForText).
 let POLISH_TEXT_INSTRUCTION = """
-Rewrite this dictated gist into polished, natural prose ready to send as a text message or email. Rules:
-- Fix all grammar, spelling, punctuation, and sentence structure; complete half-finished sentences into what the speaker clearly meant.
-- Remove filler words, false starts, and rambling; resolve self-corrections to the FINAL decision only.
-- Keep every fact, name, number, date, amount, and commitment exactly as spoken. Never invent content or add facts.
-- Tone: clear, warm, and professional. Natural human writing, not stiff corporate speak.
-- Tightening a rambling gist is good, but never drop a point the speaker made.
+Clean up this dictated transcript. Output the speaker's own words with the speech noise removed. This is a cleanup, NOT a rewrite and NOT a summary. Rules:
+- Keep the speaker's own words, phrasing, and sentence order. Do not rephrase, restructure, condense, or expand anything.
+- Remove filler words and sounds: um, uh, er, "you know", "I mean", "sort of", "kind of", "basically", "like" ONLY where they carry no meaning. Also remove false starts, stutters, and accidentally repeated words.
+- Resolve self-corrections to the FINAL version only (e.g. "Tuesday, no wait, Wednesday" becomes Wednesday).
+- Fix punctuation, capitalization, and obvious grammar slips so it reads as clean written text.
+- Keep every fact, name, number, date, amount, and commitment exactly as spoken. Never add content. Never drop a point.
 - Never use em dashes or en dashes anywhere. Use a period, comma, or colon instead.
-- No greeting or sign-off unless the speaker dictated one. No subject line. No commentary.
-Output ONLY the rewritten message.
+- No greeting, sign-off, subject line, or commentary the speaker didn't say.
+Output ONLY the cleaned text.
 """
 
 func polishViaAPI(_ text: String, timeout: Double, instruction: String = POLISH_INSTRUCTION) -> String? {
@@ -1600,13 +1597,44 @@ func contextSuffix(_ c: String) -> String {
 
 // Returns the polished text, or nil when the caller should paste the raw
 // transcript instead (no backend, timeout, or an untrustworthy rewrite).
+// Licensed transport: the rewrite runs on nesso.tech under OUR API key, gated
+// on a live license. Customers never need their own key, and a cracked copy
+// gets nothing here (402) — the capability was never on their machine.
+// mode: "summarize" | "professional" | "command".
+func polishViaProxy(_ text: String, timeout: Double, mode: String) -> String? {
+    guard !cfg.licenseKey.isEmpty else { return nil }
+    let body: [String: Any] = ["key": cfg.licenseKey, "mode": mode, "text": text]
+    guard let json = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+    let reqFile = "/tmp/ptt_proxy_\(getpid()).json"
+    defer { try? FileManager.default.removeItem(atPath: reqFile) }
+    guard (try? json.write(to: URL(fileURLWithPath: reqFile))) != nil else { return nil }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+    p.arguments = ["-s", "--max-time", String(Int(timeout)), cfg.polishProxyUrl,
+                   "-H", "content-type: application/json", "-d", "@\(reqFile)"]
+    let pipe = Pipe()
+    p.standardOutput = pipe
+    p.standardError = FileHandle.nullDevice
+    do { try p.run() } catch { return nil }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    guard p.terminationStatus == 0,
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+    if let err = obj["error"] as? String {
+        log("· proxy rewrite unavailable (\(err))")
+        return nil
+    }
+    return obj["text"] as? String
+}
+
 func polishForAI(_ text: String, context: String = "") -> String? {
     let words = text.split(separator: " ").count
     let timeout = max(30.0, Double(words) / 4.0)     // expansion writes MORE than the transcript
     let inst = POLISH_INSTRUCTION + contextSuffix(context)
     var out: String?
-    if cfg.polishKey.hasPrefix("gsk_") { out = polishViaGroq(text, timeout: timeout, instruction: inst) }
-    else if !cfg.polishKey.isEmpty { out = polishViaAPI(text, timeout: timeout, instruction: inst) }
+    out = polishViaProxy(text, timeout: timeout, mode: "summarize")
+    if out == nil, cfg.polishKey.hasPrefix("gsk_") { out = polishViaGroq(text, timeout: timeout, instruction: inst) }
+    else if out == nil, !cfg.polishKey.isEmpty { out = polishViaAPI(text, timeout: timeout, instruction: inst) }
     if out == nil { out = polishViaClaudeCLI(text, timeout: timeout, instruction: inst) }
     guard let t = out?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
     // Trust gates: a refusal / meta answer / heavy content loss means we paste
@@ -1631,8 +1659,9 @@ func polishForText(_ text: String, context: String = "") -> String? {
     let timeout = max(25.0, Double(words) / 5.0)
     let inst = POLISH_TEXT_INSTRUCTION + contextSuffix(context)
     var out: String?
-    if cfg.polishKey.hasPrefix("gsk_") { out = polishViaGroq(text, timeout: timeout, instruction: inst) }
-    else if !cfg.polishKey.isEmpty { out = polishViaAPI(text, timeout: timeout, instruction: inst) }
+    out = polishViaProxy(text, timeout: timeout, mode: "professional")
+    if out == nil, cfg.polishKey.hasPrefix("gsk_") { out = polishViaGroq(text, timeout: timeout, instruction: inst) }
+    else if out == nil, !cfg.polishKey.isEmpty { out = polishViaAPI(text, timeout: timeout, instruction: inst) }
     if out == nil { out = polishViaClaudeCLI(text, timeout: timeout, instruction: inst) }
     guard let t = out?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
     let lower = t.lowercased()
@@ -1640,26 +1669,75 @@ func polishForText(_ text: String, context: String = "") -> String? {
         || lower.hasPrefix("here is the rewritten") || lower.hasPrefix("here's the rewritten") {
         return nil
     }
-    if t.count < text.count * 3 / 10 { return nil }
+    // Cleanup only strips fillers — output under half the input means the model
+    // summarized instead; paste raw. (Gate and instruction must stay paired:
+    // a condensing prompt with this gate would reject nearly every polish.)
+    if t.count < text.count / 2 { return nil }
     return t
 }
 
 // ===================== lease check-in (customer builds) =====================
-// With a LICENSE_KEY set, the daemon phones nesso.tech on launch and every 12h.
-// Invalid/revoked/expired -> recording disarms (paste/transcribe of an already
-// running session still completes; we never eat words mid-flight). Network
-// trouble honors the last good check-in for 72h. Empty key = dev build, off.
+// With a LICENSE_KEY set, the daemon phones nesso.tech on launch and every 12h,
+// sending this machine's id (seat binding). The reply is SIGNED (Ed25519) with
+// a private key that only the server holds, and verified here against the
+// public key below — so redirecting nesso.tech to a fake local server that
+// answers {"valid":true} does NOT work: the attacker cannot forge a signature.
+// The last valid token is cached and honors its own 14-day expiry offline.
+// Invalid/revoked/expired/seat-capped -> recording disarms (an in-flight
+// session still finishes; we never eat words mid-recording). Empty key = dev.
+let LICENSE_PUBKEY_B64 = "DgOqB8kIOGQDePmlGSFcbZVVbujNZ9CVM+XkPFSJZjw="
 var licenseValid = true
-let LICENSE_STAMP = "\(HOME)/.dictation/.license_ok"
+let LICENSE_TOKEN_PATH = "\(HOME)/.dictation/.license_token"
 
-func applyLicenseGrace() {
-    if let attrs = try? FileManager.default.attributesOfItem(atPath: LICENSE_STAMP),
-       let m = attrs[.modificationDate] as? Date,
-       -m.timeIntervalSinceNow < 72 * 3600 {
+// Stable per-machine id (IOPlatformUUID): the seat this install occupies.
+func machineID() -> String {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/sbin/ioreg")
+    p.arguments = ["-rd1", "-c", "IOPlatformExpertDevice"]
+    let pipe = Pipe()
+    p.standardOutput = pipe
+    p.standardError = FileHandle.nullDevice
+    do { try p.run() } catch { return "unknown" }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    let text = String(data: data, encoding: .utf8) ?? ""
+    if let r = text.range(of: "\"IOPlatformUUID\" = \"([0-9A-Fa-f-]+)\"", options: .regularExpression),
+       let q = text[r].range(of: "[0-9A-Fa-f-]{36}", options: .regularExpression) {
+        return String(text[r][q])
+    }
+    return "unknown"
+}
+
+// True only if the signature is genuine AND the payload names this key+machine,
+// says valid, and has not expired.
+func tokenAccepted(token: String, sig: String) -> Bool {
+    guard let pubData = Data(base64Encoded: LICENSE_PUBKEY_B64),
+          let key = try? Curve25519.Signing.PublicKey(rawRepresentation: pubData),
+          let body = Data(base64Encoded: token),
+          let sigData = Data(base64Encoded: sig),
+          key.isValidSignature(sigData, for: body),
+          let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+          (obj["valid"] as? Bool) == true,
+          (obj["key"] as? String) == cfg.licenseKey,
+          let exp = obj["exp"] as? Double, exp > Date().timeIntervalSince1970 * 1000
+    else { return false }
+    let m = obj["machine"] as? String ?? ""
+    return m.isEmpty || m == machineID()
+}
+
+// No answer from the server: fall back to the last SIGNED token we stored.
+func applyCachedToken() {
+    guard let raw = try? String(contentsOfFile: LICENSE_TOKEN_PATH, encoding: .utf8) else {
+        licenseValid = false
+        log("✕ no cached license and the server is unreachable — dictation disarmed")
+        return
+    }
+    let parts = raw.split(separator: "\n", maxSplits: 1).map(String.init)
+    if parts.count == 2, tokenAccepted(token: parts[0], sig: parts[1]) {
         licenseValid = true
     } else {
         licenseValid = false
-        log("✕ license server unreachable past the 72h grace — dictation disarmed")
+        log("✕ cached license expired and the server is unreachable — dictation disarmed")
     }
 }
 
@@ -1669,23 +1747,25 @@ func checkLicense() {
     p.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
     p.arguments = ["-s", "--max-time", "15", cfg.licenseUrl,
                    "-H", "Content-Type: application/json",
-                   "-d", "{\"key\":\"\(cfg.licenseKey)\"}"]
+                   "-d", "{\"key\":\"\(cfg.licenseKey)\",\"machine\":\"\(machineID())\"}"]
     let pipe = Pipe()
     p.standardOutput = pipe
     p.standardError = FileHandle.nullDevice
-    do { try p.run() } catch { applyLicenseGrace(); return }
+    do { try p.run() } catch { applyCachedToken(); return }
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     p.waitUntilExit()
     guard p.terminationStatus == 0,
           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let valid = obj["valid"] as? Bool else { applyLicenseGrace(); return }
-    if valid {
+          let token = obj["token"] as? String, let sig = obj["sig"] as? String
+    else { applyCachedToken(); return }
+
+    if tokenAccepted(token: token, sig: sig) {
         licenseValid = true
-        try? FileManager.default.removeItem(atPath: LICENSE_STAMP)
-        FileManager.default.createFile(atPath: LICENSE_STAMP, contents: Data())
+        try? "\(token)\n\(sig)".write(toFile: LICENSE_TOKEN_PATH, atomically: true, encoding: .utf8)
     } else {
         licenseValid = false
-        log("✕ license inactive (\(obj["reason"] as? String ?? "?")) — dictation disarmed, manage it at nesso.tech")
+        let why = (obj["reason"] as? String) ?? "signature rejected"
+        log("✕ license inactive (\(why)) — dictation disarmed, manage it at nesso.tech")
     }
 }
 
@@ -1706,8 +1786,9 @@ func commandEdit(selection: String, instruction: String) -> String? {
     let payload = "SELECTED TEXT:\n\(selection)\n\nINSTRUCTION:\n\(instruction)"
     let timeout = max(30.0, Double(selection.count) / 40.0)
     var out: String?
-    if cfg.polishKey.hasPrefix("gsk_") { out = polishViaGroq(payload, timeout: timeout, instruction: COMMAND_INSTRUCTION) }
-    else if !cfg.polishKey.isEmpty { out = polishViaAPI(payload, timeout: timeout, instruction: COMMAND_INSTRUCTION) }
+    out = polishViaProxy(payload, timeout: timeout, mode: "command")
+    if out == nil, cfg.polishKey.hasPrefix("gsk_") { out = polishViaGroq(payload, timeout: timeout, instruction: COMMAND_INSTRUCTION) }
+    else if out == nil, !cfg.polishKey.isEmpty { out = polishViaAPI(payload, timeout: timeout, instruction: COMMAND_INSTRUCTION) }
     if out == nil { out = polishViaClaudeCLI(payload, timeout: timeout, instruction: COMMAND_INSTRUCTION) }
     guard let t = out?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
     let lower = t.lowercased()
@@ -2260,13 +2341,6 @@ final class Dictation: NSObject {
     // "busy" lockout between recordings.
     func toggle() {
         if recording {
-            // v8.1 mode-first stop: the tap only finishes once a mode chip is
-            // picked (command-mode instructions exempt — they have no mode).
-            if cfg.modeRequired, commandSelection == nil, ui.selectedMode == .ask {
-                ui.flashModeRow()
-                log("· stop tap held — pick Summarize/Normal/Professional to finish, Esc cancels")
-                return
-            }
             stopAndTranscribe()
         } else {
             startRecording()
@@ -2467,26 +2541,44 @@ final class Dictation: NSObject {
             case .professional: professional(text); return
             case .ask:          break
             }
-            if !aiTarget, proTarget, text.split(separator: " ").count >= cfg.polishMinWords {
+            // No chip clicked — v8.3 default flow, no popup ever. Texting/email
+            // apps keep the auto-Professional cleanup; everywhere else
+            // DEFAULT_MODE decides (summarize unless configured otherwise).
+            // Short clips paste raw: an LLM round-trip on a one-liner is pure
+            // latency, and a one-liner has nothing to summarize.
+            let words = text.split(separator: " ").count
+            if !aiTarget, proTarget, words >= cfg.polishMinWords {
                 log("· auto-professional (\(frontApp))")
                 professional(text)
                 return
             }
-            guard aiTarget, text.split(separator: " ").count >= cfg.polishMinWords else {
+            guard cfg.polish, words >= cfg.polishMinWords else {
                 finish(text, "")
                 return
             }
-            if cfg.polishAsk {
-                let t = text
-                DispatchQueue.main.async {
-                    log("? transcript ready (session \(n)) — Summarize / Professional / Keep?")
-                    ChoicePanel.show(transcript: t,
-                                     onSummarize: { summarize(t) },
-                                     onProfessional: { professional(t) },
-                                     onKeep: { finish(t, "") })
-                }
-            } else {
+            switch cfg.defaultMode {
+            case "summarize":
+                log("· default mode: summarize")
                 summarize(text)
+            case "professional":
+                log("· default mode: professional")
+                professional(text)
+            case "normal":
+                finish(text, "")
+            default:   // "ask" — the pre-v8.3 popup/auto flow, AI apps only
+                guard aiTarget else { finish(text, ""); return }
+                if cfg.polishAsk {
+                    let t = text
+                    DispatchQueue.main.async {
+                        log("? transcript ready (session \(n)) — Summarize / Professional / Keep?")
+                        ChoicePanel.show(transcript: t,
+                                         onSummarize: { summarize(t) },
+                                         onProfessional: { professional(t) },
+                                         onKeep: { finish(t, "") })
+                    }
+                } else {
+                    summarize(text)
+                }
             }
         }
         // Rolling cache first: everything before the tail was transcribed while
@@ -2909,5 +3001,5 @@ let licTimer = Timer(timeInterval: 12 * 3600, repeats: true) { _ in
 }
 RunLoop.main.add(licTimer, forMode: .common)
 
-log("▶ NessoTalk v8.2 (lease check-in) up. Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ((cfg.polishAsk ? "ask" : "auto") + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
+log("▶ NessoTalk v8.4 (signed lease + server AI proxy · no-click = \(cfg.defaultMode)) up. license=\(cfg.licenseKey.isEmpty ? "dev(off)" : "on") · Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ("default-" + cfg.defaultMode + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
 app.run()

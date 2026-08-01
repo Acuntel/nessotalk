@@ -24,6 +24,7 @@ export default function Dashboard({
   const router = useRouter();
   const [entered, setEntered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [unlockCopied, setUnlockCopied] = useState(false);
   const [note, setNote] = useState("");
 
   useEffect(() => {
@@ -45,6 +46,14 @@ export default function Dashboard({
     navigator.clipboard.writeText(licenseKey);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  }
+
+  function copyUnlock() {
+    navigator.clipboard.writeText(
+      `openssl enc -d -aes-256-cbc -pbkdf2 -k ${licenseKey} -in nessotalk-mac-beta.zip.enc -out nessotalk-mac.zip && unzip nessotalk-mac.zip`
+    );
+    setUnlockCopied(true);
+    setTimeout(() => setUnlockCopied(false), 1500);
   }
 
   function subscribe() {
@@ -98,23 +107,37 @@ export default function Dashboard({
           <h1 className="font-display text-2xl text-cream">1. Download it</h1>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <a
-              href="/downloads/nessotalk-mac-beta.zip"
+              href="/api/download?platform=mac"
               className="rounded-xl bg-cream py-3.5 text-center text-sm font-semibold text-ink transition hover:bg-white"
             >
                Mac
             </a>
             <a
-              href="/downloads/nessotalk-windows-beta.zip"
+              href="/api/download?platform=windows"
               className="rounded-xl bg-cream py-3.5 text-center text-sm font-semibold text-ink transition hover:bg-white"
             >
               ⊞ Windows
             </a>
           </div>
           <p className="mt-3 text-xs leading-5 text-mist">
-            Mac: unzip, then run ./install.sh with your key below. Windows:
-            unzip, run setup.ps1. Both are beta builds; the installer walks you
-            through the one-time permissions.
+            Your download is locked to your account. Unlock it with the command
+            below, then run install.sh (Mac) or setup.ps1 (Windows). The
+            installer handles the one-time permissions.
           </p>
+          <button
+            onClick={copyUnlock}
+            className="mt-3 flex w-full items-center justify-between gap-3 rounded-xl border border-edge bg-ink px-4 py-3 text-left font-mono text-[11px] leading-5 text-mist hover:border-volt"
+          >
+            <span className="truncate">
+              openssl enc -d -aes-256-cbc -pbkdf2 -k {licenseKey.slice(0, 8)}... -in
+              nessotalk-mac-beta.zip.enc -out nessotalk-mac.zip
+            </span>
+            {unlockCopied ? (
+              <Check className="h-4 w-4 shrink-0 text-volt" />
+            ) : (
+              <Copy className="h-4 w-4 shrink-0 text-mist" />
+            )}
+          </button>
         </div>
 
         <div className="mt-6 rounded-3xl border border-edge bg-panel p-8">
