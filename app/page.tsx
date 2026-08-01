@@ -6,7 +6,6 @@ import { Transform } from "@/components/Transform";
 import {
   ProofBar,
   HowItWorks,
-  FeatureGrid,
   FinalCTA,
   Footer,
 } from "@/components/Sections";
@@ -66,7 +65,6 @@ export default function Home() {
       <ProofBar />
       <Transform />
       <HowItWorks />
-      <FeatureGrid />
       <Pricing />
       <FAQ />
       <FinalCTA />
