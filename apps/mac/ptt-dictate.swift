@@ -99,6 +99,11 @@ struct Config {
     // picked on the pill (Summarize/Normal/Professional); Esc cancels. 0
     // restores the old flow (stop anytime, popup/auto per POLISH_ASK/PRO_APPS).
     var modeRequired = true
+    // v8.2 lease: customer builds carry a LICENSE_KEY (from the nesso.tech
+    // dashboard). The daemon checks in on launch + every 12h; revoked/expired
+    // accounts disarm recording. Empty key = enforcement off (dev build).
+    var licenseKey = ""
+    var licenseUrl = "https://nesso.tech/api/license"
 
     static func load() -> Config {
         var c = Config()
@@ -178,6 +183,8 @@ struct Config {
             case "WHISPER_MODE":       c.whisperMode = (val == "1" || val.lowercased() == "true")
             case "PRO_APPS":           c.proApps = val
             case "MODE_REQUIRED":      c.modeRequired = (val == "1" || val.lowercased() == "true")
+            case "LICENSE_KEY":        c.licenseKey = val
+            case "LICENSE_URL":        if !val.isEmpty { c.licenseUrl = val }
             default: break
             }
         }
@@ -1637,6 +1644,51 @@ func polishForText(_ text: String, context: String = "") -> String? {
     return t
 }
 
+// ===================== lease check-in (customer builds) =====================
+// With a LICENSE_KEY set, the daemon phones nesso.tech on launch and every 12h.
+// Invalid/revoked/expired -> recording disarms (paste/transcribe of an already
+// running session still completes; we never eat words mid-flight). Network
+// trouble honors the last good check-in for 72h. Empty key = dev build, off.
+var licenseValid = true
+let LICENSE_STAMP = "\(HOME)/.dictation/.license_ok"
+
+func applyLicenseGrace() {
+    if let attrs = try? FileManager.default.attributesOfItem(atPath: LICENSE_STAMP),
+       let m = attrs[.modificationDate] as? Date,
+       -m.timeIntervalSinceNow < 72 * 3600 {
+        licenseValid = true
+    } else {
+        licenseValid = false
+        log("✕ license server unreachable past the 72h grace — dictation disarmed")
+    }
+}
+
+func checkLicense() {
+    guard !cfg.licenseKey.isEmpty else { return }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+    p.arguments = ["-s", "--max-time", "15", cfg.licenseUrl,
+                   "-H", "Content-Type: application/json",
+                   "-d", "{\"key\":\"\(cfg.licenseKey)\"}"]
+    let pipe = Pipe()
+    p.standardOutput = pipe
+    p.standardError = FileHandle.nullDevice
+    do { try p.run() } catch { applyLicenseGrace(); return }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    guard p.terminationStatus == 0,
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let valid = obj["valid"] as? Bool else { applyLicenseGrace(); return }
+    if valid {
+        licenseValid = true
+        try? FileManager.default.removeItem(atPath: LICENSE_STAMP)
+        FileManager.default.createFile(atPath: LICENSE_STAMP, contents: Data())
+    } else {
+        licenseValid = false
+        log("✕ license inactive (\(obj["reason"] as? String ?? "?")) — dictation disarmed, manage it at nesso.tech")
+    }
+}
+
 // ===================== command mode (edit selection by voice) =====================
 // Option + Right-⌘ tap: the current selection is captured (synthesized Cmd-C),
 // a recording starts, and the spoken words become an EDIT INSTRUCTION for the
@@ -2222,6 +2274,11 @@ final class Dictation: NSObject {
     }
 
     func startRecording() {
+        guard licenseValid else {
+            log("✕ recording blocked — license inactive. Manage it at nesso.tech")
+            playSound("Basso")
+            return
+        }
         // AVAudioEngine.start() can block in audio-server XPC while TCC mic
         // authorization is unresolved (fresh binary = fresh TCC identity) —
         // never start it unless we're already authorized.
@@ -2846,5 +2903,11 @@ usr2.setEventHandler {
 usr2.resume()
 
 let micPlan = resolveInputCandidates(cfg.inputDevice).map { $0.name }.joined(separator: " → ")
-log("▶ NessoTalk v8.1 (mode-first stop + Esc cancel) up. Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ((cfg.polishAsk ? "ask" : "auto") + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
+DispatchQueue.global().async { checkLicense() }
+let licTimer = Timer(timeInterval: 12 * 3600, repeats: true) { _ in
+    DispatchQueue.global().async { checkLicense() }
+}
+RunLoop.main.add(licTimer, forMode: .common)
+
+log("▶ NessoTalk v8.2 (lease check-in) up. Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ((cfg.polishAsk ? "ask" : "auto") + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
 app.run()

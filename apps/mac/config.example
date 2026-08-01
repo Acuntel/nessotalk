@@ -47,4 +47,7 @@ PRO_APPS=mobilesms,messages,mail,outlook,whatsapp,telegram,slack,discord
 # Mode-first stop (v8.1): the stop tap only lands after you pick a mode chip on
 # the pill; Esc cancels the recording. 0 restores stop-anytime + popup/auto flow.
 MODE_REQUIRED=1
+# Lease (v8.2): customer builds set the license key from the nesso.tech
+# dashboard. Empty = dev build, enforcement off.
 POLISH_KEY=
+LICENSE_KEY=

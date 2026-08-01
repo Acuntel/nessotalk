@@ -2,6 +2,7 @@ import Link from "next/link";
 import Nav from "@/components/Nav";
 import WaveformPill from "@/components/WaveformPill";
 import Pricing, { FAQ } from "@/components/Pricing";
+import { Transform } from "@/components/Transform";
 import {
   ProofBar,
   HowItWorks,
@@ -35,9 +36,9 @@ export default function Home() {
           className="fadeup mx-auto mt-6 max-w-xl text-lg text-mist"
           style={{ animationDelay: "160ms" }}
         >
-          NessoTalk turns your voice into clean, polished text in any app on
-          your Mac or PC. It runs on your machine, keeps your words yours, and
-          costs a third of what the big-name tools charge.
+          Tap a key. Talk. Clean text lands wherever your cursor is, in every
+          app you use. Runs on your machine. A third of the price of the
+          big-name tools.
         </p>
         <div
           className="fadeup mt-8 flex items-center justify-center gap-4"
@@ -54,7 +55,7 @@ export default function Home() {
           </a>
         </div>
         <p className="fadeup mt-4 text-xs text-mist" style={{ animationDelay: "300ms" }}>
-          No credit card. Set up in about a minute.
+           Mac · ⊞ Windows · No card · About a minute to set up
         </p>
 
         <div className="fadeup mt-16" style={{ animationDelay: "360ms" }}>
@@ -63,6 +64,7 @@ export default function Home() {
       </section>
 
       <ProofBar />
+      <Transform />
       <HowItWorks />
       <FeatureGrid />
       <Pricing />

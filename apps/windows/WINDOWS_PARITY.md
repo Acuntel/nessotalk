@@ -49,7 +49,17 @@ Work these in order; each task lists the exact behavior contract.
   filler strip (um/uh but never "uh huh"), spoken "new line"/"new paragraph"/
   bullet commands only at punctuation-flanked boundaries.
 
-## 7. Robustness lessons already paid for on Mac
+## 7. Lease check-in (v8.2, REQUIRED before any customer install)
+- Config LICENSE_KEY (from the nesso.tech dashboard) + LICENSE_URL
+  (default https://nesso.tech/api/license).
+- On launch + every 12h: POST {"key": "<uuid>"} to LICENSE_URL. Response
+  {"valid": bool, "reason": ...}. valid=false -> disarm recording (hotkey
+  refuses with a "manage at nesso.tech" message); an in-flight session still
+  finishes (never eat words mid-recording).
+- Network failure: honor the last successful check-in for 72h (stamp file),
+  then disarm. Empty LICENSE_KEY = dev build, enforcement off.
+
+## 8. Robustness lessons already paid for on Mac
 - Pin the built-in mic by default; Bluetooth default inputs drop silently.
 - Survive sleep/wake without restart (WASAPI device-invalidation handling is
   the Windows analog of the Mac's AVAudioEngine -10868 lesson).

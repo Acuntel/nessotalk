@@ -13,7 +13,7 @@ export default async function AppPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("email, plan, trial_ends_at, created_at")
+    .select("email, plan, trial_ends_at, created_at, license_key")
     .eq("id", user.id)
     .single();
 
@@ -28,6 +28,7 @@ export default async function AppPage() {
       uid={user.id}
       plan={profile?.plan ?? "trial"}
       daysLeft={daysLeft}
+      licenseKey={profile?.license_key ?? ""}
     />
   );
 }
