@@ -1,0 +1,50 @@
+# ptt-dictate runtime config — edit then run `ptt restart` (no rebuild needed)
+VAD_THRESHOLD=0.3
+MAX_RECORD_SECONDS=2700
+LIVE_CAPTIONS=1
+CAPTION_INTERVAL=2.0
+CAPTION_WINDOW=10
+CAPTION_MODEL=/Users/bradyschwartz/.whisper-models/ggml-base.en-q5_1.bin
+# Which mic to record from: builtin | default | <substring of a device name>.
+# "builtin" pins to the Mac's own mic so dictation never rides Bluetooth (AirPods).
+INPUT_DEVICE=builtin
+# Pre-decode denoise + dynamic-normalize via ffmpeg (recovers quiet/ducked words).
+PREPROCESS=1
+# Phone/VoIP dictation: aggressive denoise + lower VAD gate. Toggle with `ptt call`.
+CALL_MODE=0
+# Rolling transcription: pre-transcribe finished audio every ~N seconds while
+# still recording, so long dictations paste in seconds. <20 disables.
+CHUNK_SECONDS=30
+# Resident whisper-server for near-instant pastes (auto-fallback to CLI). 0 disables.
+# After tuning VAD_THRESHOLD, run `ptt server sync`.
+SERVER=1
+# AI prompt-polish: rewrites dictation into a structured prompt when pasting
+# into an AI app. Say "verbatim" first to skip once. POLISH=0 disables.
+POLISH=1
+POLISH_APPS=terminal,iterm,claude,code,cursor,warp
+POLISH_MIN_WORDS=12
+# Optional sk-ant key for the fast direct-API path (else claude CLI, ~5s slower)
+# Ask before polishing: floating Summarize / Keep-the-Same popup after each
+# qualifying dictation. Unanswered popups paste the RAW transcript after the
+# timeout (seconds). POLISH_ASK=0 restores silent auto-polish.
+POLISH_ASK=1
+POLISH_ASK_TIMEOUT=30
+# Claude model for the Summarize rewrite. sonnet-5 = detail-preserving expansion;
+# claude-haiku-4-5 = faster/lighter if polish ever feels too slow.
+POLISH_MODEL=claude-sonnet-5
+# Speculative tail: decode during the pause before the stop tap. 0 disables.
+SPECULATIVE=1
+# ==== NessoTalk v8.0 ====
+# Decode language: en, es, fr, ... or auto (detects, can switch mid-recording).
+# Live captions stay English (the caption model is English-only).
+LANGUAGE=en
+# Whisper mode: dictate at a whisper — strong gain/denoise + a low VAD gate.
+# Uses the CLI decode path (server VAD gate is fixed at launch). Toggle: ptt whisper
+WHISPER_MODE=0
+# Auto-Professional apps (bundle-id substrings): dictating into these rewrites
+# the gist into clean text/email prose automatically, no popup. Empty disables.
+PRO_APPS=mobilesms,messages,mail,outlook,whatsapp,telegram,slack,discord
+# Mode-first stop (v8.1): the stop tap only lands after you pick a mode chip on
+# the pill; Esc cancels the recording. 0 restores stop-anytime + popup/auto flow.
+MODE_REQUIRED=1
+POLISH_KEY=

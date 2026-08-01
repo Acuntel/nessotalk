@@ -55,7 +55,7 @@ export function HowItWorks() {
       </h2>
       <p className="mx-auto mt-4 max-w-2xl text-center text-mist">
         You think at 150 words a minute and type at 45. NessoTalk closes the gap
-        in every single Mac app: email, Slack, docs, your AI tools, all of it.
+        in every app on your Mac or PC: email, Slack, docs, your AI tools, all of it.
       </p>
       <div className="mt-14 grid gap-8 sm:grid-cols-3">
         {steps.map((s) => (

@@ -6,12 +6,18 @@ import Link from "next/link";
 import { Download, Sparkles, LogOut } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
+const STRIPE_MONTHLY = "https://buy.stripe.com/00wfZh6AA6Ru6kfcxlgMw00";
+const WINDOWS_ZIP =
+  "https://github.com/jeremymhayes/ptt-dictate-windows/archive/refs/heads/main.zip";
+
 export default function Dashboard({
   email,
+  uid,
   plan,
   daysLeft,
 }: {
   email: string;
+  uid: string;
   plan: string;
   daysLeft: number;
 }) {
@@ -24,21 +30,19 @@ export default function Dashboard({
     router.refresh();
   }
 
-  async function upgrade(interval: "month" | "year") {
-    const res = await fetch("/api/checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ interval }),
-    });
-    if (res.ok) {
-      const { url } = await res.json();
+  function upgrade(interval: "month" | "year") {
+    if (interval === "month") {
+      const url =
+        STRIPE_MONTHLY +
+        "?prefilled_email=" +
+        encodeURIComponent(email) +
+        "&client_reference_id=" +
+        encodeURIComponent(uid);
       window.location.href = url;
       return;
     }
     setNote(
-      "Billing opens shortly. Your founding price is locked: you'll pay " +
-        (interval === "month" ? "$4.99/mo" : "$39/yr") +
-        " when it goes live, and your trial keeps running until then."
+      "Annual checkout opens shortly. Your founding price is locked at $39/yr, and your trial keeps running until then."
     );
   }
 
@@ -74,17 +78,26 @@ export default function Dashboard({
         <div className="mt-6 grid gap-6 sm:grid-cols-2">
           <div className="rounded-3xl border border-edge bg-panel p-8">
             <Download className="h-6 w-6 text-volt" />
-            <h2 className="mt-3 font-display text-xl text-cream">Get NessoTalk for Mac</h2>
+            <h2 className="mt-3 font-display text-xl text-cream">Get NessoTalk</h2>
             <p className="mt-2 text-sm leading-6 text-mist">
-              The beta build lands right here, and you're in line for it. We'll
-              email you the moment your download is ready.
+              Pick your platform. Windows beta is downloadable now (unzip, run
+              setup.ps1). The Mac beta lands here next; we'll email you the
+              moment it's ready.
             </p>
-            <button
-              disabled
-              className="mt-5 w-full cursor-not-allowed rounded-xl border border-edge bg-ink py-3 text-sm font-semibold text-mist"
-            >
-              Beta rolling out now
-            </button>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <a
+                href={WINDOWS_ZIP}
+                className="rounded-xl bg-cream py-3 text-center text-sm font-semibold text-ink transition hover:bg-white"
+              >
+                Windows beta
+              </a>
+              <button
+                disabled
+                className="cursor-not-allowed rounded-xl border border-edge bg-ink py-3 text-sm font-semibold text-mist"
+              >
+                macOS soon
+              </button>
+            </div>
           </div>
 
           <div className="rounded-3xl border border-volt/40 bg-panel p-8">

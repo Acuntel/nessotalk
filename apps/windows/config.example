@@ -1,0 +1,41 @@
+# ptt-dictate configuration. Copy to %LOCALAPPDATA%\ptt-dictate\config.
+# Values are read each time the daemon starts; no rebuild is needed.
+
+# RightCtrl is the Windows-friendly default. Also supported: RightWin, RightAlt, F13-F24.
+HOTKEY=RightCtrl
+
+# builtin prefers an active non-Bluetooth capture endpoint. Alternatively use an
+# exact endpoint ID printed by: .\ptt.ps1 devices
+INPUT_DEVICE=builtin
+
+MAX_RECORD_MINUTES=45
+MICCHECK_SECONDS=5
+AUTO_PASTE=true
+PREPROCESS_AUDIO=true
+FFMPEG_PATH=ffmpeg.exe
+
+# whisper.cpp paths. setup.ps1 fills these in when it installs the runtime.
+WHISPER_CLI=%LOCALAPPDATA%\ptt-dictate\whisper\whisper-cli.exe
+WHISPER_MODEL=%LOCALAPPDATA%\ptt-dictate\models\ggml-large-v3-turbo-q5_0.bin
+VAD_MODEL=%LOCALAPPDATA%\ptt-dictate\models\ggml-silero-v6.2.0.bin
+WHISPER_TIMEOUT_SECONDS=600
+WHISPER_LANGUAGE=en
+WHISPER_THREADS=0
+WHISPER_PROMPT=Wispr Flow, ptt-dictate, Codex, Next.js, TypeScript, PowerShell, Windows, whisper.cpp.
+
+# Semicolon-delimited regex=>replacement pairs. Invalid regexes are logged and skipped.
+GLOSSARY=\bwispr\s*flow\b=>Wispr Flow;\bnext\s*(?:\.\s*)?js\b=>Next.js;\btype\s*script\b=>TypeScript;\bpower\s*shell\b=>PowerShell;\bwhisper\s*(?:\.\s*)?cpp\b=>whisper.cpp;\bcodex\b=>Codex
+
+# Optional sound WAV overrides. Blank uses ptt-dictate's distinct built-in chimes.
+START_SOUND=
+STOP_SOUND=
+DONE_SOUND=
+
+# Optional rolling decode/server/LLM polish are deliberately off until configured.
+WHISPER_SERVER_URL=
+ROLLING_SECONDS=0
+POLISH_ENABLED=false
+POLISH_ENDPOINT=
+POLISH_API_KEY=
+POLISH_MODEL=
+POLISH_APPS=WindowsTerminal,Code,Cursor,Warp,Claude,Codex

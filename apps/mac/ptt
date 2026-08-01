@@ -1,0 +1,137 @@
+#!/bin/zsh
+# Control script for the push-to-talk whisper dictation agent (PttDictate.app bundle).
+LABEL=com.brady.ptt-dictate
+DOMAIN="gui/$(id -u)"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+DIR="$HOME/.dictation"
+APP="$DIR/PttDictate.app"
+BIN="$APP/Contents/MacOS/ptt-dictate"
+# Stable codesign identity (Apple Development) + a real bundle id (com.brady.ptt-dictate
+# in Info.plist). TCC keys Mic + Accessibility on the BUNDLE ID, so rebuilds never wipe
+# the grants, and `tccutil reset {Microphone,Accessibility} com.brady.ptt-dictate` can
+# cleanly repair a bad state — neither was possible with the old bare executable.
+SIGN_ID=99F202BCAC5ED8E803E5DAF0E8F5A4B366276831
+case "$1" in
+  start)   launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; launchctl kickstart -p "$DOMAIN/$LABEL" ;;
+  stop)    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null && echo "stopped" ;;
+  restart) launchctl kickstart -k "$DOMAIN/$LABEL" && echo "restarted" ;;
+  call)
+    # Toggle call-mode in the config (no rebuild): disables/aggressive-denoises for
+    # phone/VoIP dictation, then restarts the daemon so the new value is read.
+    cfgf="$DIR/config"
+    cur=$(grep -E '^CALL_MODE=' "$cfgf" | tail -1 | cut -d= -f2)
+    case "${2:-toggle}" in
+      on|1)  new=1 ;;
+      off|0) new=0 ;;
+      *)     [ "$cur" = "1" ] && new=0 || new=1 ;;
+    esac
+    if grep -qE '^CALL_MODE=' "$cfgf"; then
+      sed -i '' -E "s/^CALL_MODE=.*/CALL_MODE=$new/" "$cfgf"
+    else
+      printf '\nCALL_MODE=%s\n' "$new" >> "$cfgf"
+    fi
+    launchctl kickstart -k "$DOMAIN/$LABEL" >/dev/null 2>&1
+    if [ "$new" = 1 ]; then echo "call-mode ON  — VAD gate lowered + aggressive denoise/AGC (restarted)";
+    else echo "call-mode OFF — normal denoise + VAD gate (restarted)"; fi
+    ;;
+  whisper)
+    # Toggle whisper mode (quiet-voice dictation): strong gain/denoise + a low
+    # VAD gate, CLI decode path. Same shape as `ptt call`.
+    cfgf="$DIR/config"
+    cur=$(grep -E '^WHISPER_MODE=' "$cfgf" | tail -1 | cut -d= -f2)
+    case "${2:-toggle}" in
+      on|1)  new=1 ;;
+      off|0) new=0 ;;
+      *)     [ "$cur" = "1" ] && new=0 || new=1 ;;
+    esac
+    if grep -qE '^WHISPER_MODE=' "$cfgf"; then
+      sed -i '' -E "s/^WHISPER_MODE=.*/WHISPER_MODE=$new/" "$cfgf"
+    else
+      printf '\nWHISPER_MODE=%s\n' "$new" >> "$cfgf"
+    fi
+    launchctl kickstart -k "$DOMAIN/$LABEL" >/dev/null 2>&1
+    if [ "$new" = 1 ]; then echo "whisper-mode ON  — dictate at a whisper (strong gain + low VAD gate, restarted)";
+    else echo "whisper-mode OFF — normal voice chain (restarted)"; fi
+    ;;
+  learn)
+    # Teach the dictionary a word: ptt learn "Word" [misheard1 misheard2 ...]
+    # Appends to learned-words.txt; hot-reloaded — applies from the next dictation.
+    shift
+    [ -z "$1" ] && { echo "usage: ptt learn \"Word\" [misheard1 misheard2 ...]"; exit 1; }
+    word="$1"; shift
+    if [ $# -gt 0 ]; then
+      variants=$(IFS=,; echo "$*")
+      echo "$word|$variants" >> "$DIR/learned-words.txt"
+      echo "learned: $word (heard as: $variants) — applies from the next dictation"
+    else
+      echo "$word" >> "$DIR/learned-words.txt"
+      echo "learned: $word — applies from the next dictation"
+    fi
+    ;;
+  snippets)
+    # Open the snippets file (name = expansion; say "snippet <name>" to expand).
+    ${EDITOR:-open -e} "$DIR/snippets"
+    ;;
+  status)  launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -iE "state =|pid =" | head -2 || echo "not loaded" ;;
+  log)     tail -n 30 -f "$DIR/ptt.log" ;;
+  build)
+    cd "$DIR" || exit 1
+    echo "compiling…"
+    swiftc -O ptt-dictate.swift -o ptt-dictate.new || { echo "compile FAILED — keeping current binary"; exit 1; }
+    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null
+    mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+    cp -f Info.plist "$APP/Contents/Info.plist"
+    mv -f ptt-dictate.new "$BIN"
+    chmod +x "$BIN"
+    if codesign -f -s "$SIGN_ID" --timestamp=none "$APP" 2>/dev/null; then
+      echo "signed bundle with stable identity (TCC grants survive rebuilds)"
+    else
+      codesign -f -s - "$APP"
+      echo "WARN: stable signing failed, fell back to ad-hoc — grants will reset"
+    fi
+    launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null
+    launchctl kickstart -p "$DOMAIN/$LABEL"
+    echo "rebuilt + restarted. Watch: ptt log"
+    ;;
+  devices)  "$BIN" --devices ;;
+  miccheck) "$BIN" --mic-check "${2:-}" ;;
+  server)
+    # Resident whisper-server (model stays loaded -> near-instant pastes).
+    # sync: regenerate the plist from the config's VAD_THRESHOLD and restart —
+    # needed because the server's VAD gate is fixed at launch, not per-request.
+    SLABEL=com.brady.ptt-whisper-server
+    SPLIST="$HOME/Library/LaunchAgents/$SLABEL.plist"
+    case "${2:-status}" in
+      status)  launchctl print "$DOMAIN/$SLABEL" 2>/dev/null | grep -iE "state =|pid =" | head -2 || echo "not loaded"
+               curl -s --max-time 5 127.0.0.1:8977/inference -F file=@/dev/null 2>/dev/null | grep -q . \
+                 && echo "port 8977: answering" || echo "port 8977: NOT answering (daemon auto-falls back to CLI)" ;;
+      log)     tail -n 30 "$DIR/whisper-server.log" ;;
+      restart) launchctl kickstart -k "$DOMAIN/$SLABEL" && echo "server restarted (model reloads ~5s)" ;;
+      stop)    launchctl bootout "$DOMAIN/$SLABEL" 2>/dev/null && echo "server stopped (dictation falls back to CLI)" ;;
+      start)   launchctl bootstrap "$DOMAIN" "$SPLIST" 2>/dev/null; launchctl kickstart -p "$DOMAIN/$SLABEL" ;;
+      sync)
+        VT=$(grep -E '^VAD_THRESHOLD=' "$DIR/config" | tail -1 | cut -d= -f2)
+        VT=${VT:-0.3}
+        sed -i '' -E "s|(<string>-vt</string><string>)[0-9.]+(</string>)|\1$VT\2|" "$SPLIST"
+        launchctl bootout "$DOMAIN/$SLABEL" 2>/dev/null
+        launchctl bootstrap "$DOMAIN" "$SPLIST"
+        echo "server plist synced to VAD_THRESHOLD=$VT and restarted" ;;
+      *) echo "usage: ptt server {status|log|restart|stop|start|sync}" ;;
+    esac
+    ;;
+  reset-perms)
+    echo "wiping TCC for com.brady.ptt-dictate — you'll re-grant Accessibility (and Mic) once…"
+    tccutil reset Microphone com.brady.ptt-dictate
+    tccutil reset Accessibility com.brady.ptt-dictate
+    launchctl kickstart -k "$DOMAIN/$LABEL"
+    echo "restarted — enable PttDictate in Privacy & Security ▸ Accessibility."
+    ;;
+  fixaudio)
+    # Manually reset a wedged system audio daemon (the -10868 "capture won't start"
+    # after sleep). coreaudiod respawns automatically. Uses the passwordless rule if
+    # installed, otherwise prompts for your password.
+    echo "resetting coreaudiod (it will respawn in ~1s)…"
+    sudo killall coreaudiod && echo "done — tap Right ⌘ to dictate" || echo "failed — reboot if it persists"
+    ;;
+  *) echo "usage: ptt {start|stop|restart|call [on|off]|status|log|build|devices|miccheck|server [status|log|restart|stop|start|sync]|reset-perms|fixaudio}" ;;
+esac

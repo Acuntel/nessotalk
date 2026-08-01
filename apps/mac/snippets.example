@@ -1,0 +1,7 @@
+# NessoTalk snippets: name = expansion. Say "snippet <name>" (or "insert
+# snippet <name>") anywhere in a dictation and it expands in place.
+# \n in the expansion becomes a newline. Lines starting with # are ignored.
+# Examples (uncomment and edit):
+# email = bschwartz1725@gmail.com
+# calendly = Grab a time here: https://calendly.com/bradyschwartz
+# intro = I'm Brady, 18, heading to USC for AI. I build custom software and AI systems for businesses.

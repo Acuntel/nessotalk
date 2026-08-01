@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+          cache: true
+          cache-dependency-path: ptt-dictate.csproj
+      - name: Restore
+        run: dotnet restore ptt-dictate.csproj
+      - name: Build
+        run: dotnet build ptt-dictate.csproj -c Release --no-restore
+      - name: Self-tests
+        run: dotnet run --project ptt-dictate.csproj -c Release --no-build -- --self-test

@@ -21,7 +21,7 @@ export default function Home() {
           className="pointer-events-none absolute left-1/2 top-24 h-72 w-[42rem] -translate-x-1/2 rounded-full bg-volt/20 blur-[120px]"
         />
         <span className="fadeup inline-block rounded-full border border-edge bg-panel px-4 py-1.5 text-xs font-medium text-mist">
-          For Mac · Local-first · 14 days free
+          Mac + Windows · Local-first · 14 days free
         </span>
         <h1
           className="fadeup mx-auto mt-6 max-w-3xl font-display text-5xl leading-[1.05] text-cream sm:text-7xl"
@@ -35,9 +35,9 @@ export default function Home() {
           className="fadeup mx-auto mt-6 max-w-xl text-lg text-mist"
           style={{ animationDelay: "160ms" }}
         >
-          NessoTalk turns your voice into clean, polished text in any Mac app.
-          It runs on your machine, keeps your words yours, and costs a third of
-          what the big-name tools charge.
+          NessoTalk turns your voice into clean, polished text in any app on
+          your Mac or PC. It runs on your machine, keeps your words yours, and
+          costs a third of what the big-name tools charge.
         </p>
         <div
           className="fadeup mt-8 flex items-center justify-center gap-4"

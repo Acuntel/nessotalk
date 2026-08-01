@@ -25,6 +25,7 @@ export default async function AppPage() {
   return (
     <Dashboard
       email={profile?.email ?? user.email ?? ""}
+      uid={user.id}
       plan={profile?.plan ?? "trial"}
       daysLeft={daysLeft}
     />

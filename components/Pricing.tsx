@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Check, X } from "lucide-react";
 
 const OURS = [
-  "Unlimited dictation, every Mac app",
+  "Unlimited dictation on Mac and Windows",
   "Local transcription: audio never uploaded",
   "Summarize, Professional, and exact-words modes",
   "Edit any selected text by voice",
@@ -75,7 +75,7 @@ const QA = [
   ],
   [
     "What do I need to run it?",
-    "A Mac with Apple Silicon (M1 or newer) runs it best. You grant microphone and accessibility permissions once during a guided setup.",
+    "On Mac: Apple Silicon (M1 or newer) runs it best. On Windows: Windows 11 with the .NET 9 runtime, which the installer sets up for you. Either way you grant microphone permission once during a guided setup.",
   ],
   [
     "What happens after the 14-day trial?",
