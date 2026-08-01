@@ -1,0 +1,110 @@
+import Link from "next/link";
+import { Check, X } from "lucide-react";
+
+const OURS = [
+  "Unlimited dictation, every Mac app",
+  "Local transcription: audio never uploaded",
+  "Summarize, Professional, and exact-words modes",
+  "Edit any selected text by voice",
+  "Custom dictionary + voice snippets",
+  "100+ languages and whisper mode",
+];
+
+export default function Pricing() {
+  return (
+    <section id="pricing" className="mx-auto max-w-6xl px-5 py-24">
+      <h2 className="text-center font-display text-4xl text-cream sm:text-5xl">
+        A third of the price. On purpose.
+      </h2>
+      <p className="mx-auto mt-4 max-w-2xl text-center text-mist">
+        The big-name dictation tool runs $12 to $15 a month, forever. NessoTalk
+        does the same job on your own hardware, so we can charge a lot less.
+      </p>
+
+      <div className="mx-auto mt-14 grid max-w-4xl gap-6 sm:grid-cols-2">
+        <div className="rounded-3xl border border-edge bg-panel/40 p-8">
+          <div className="text-sm font-medium text-mist">The other guys</div>
+          <div className="mt-2 font-display text-4xl text-mist">
+            $15<span className="text-lg">/mo</span>
+          </div>
+          <ul className="mt-6 space-y-3 text-sm text-mist">
+            <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-mist/60" />Audio processed in their cloud</li>
+            <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-mist/60" />$180 a year, every year</li>
+            <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-mist/60" />Great dictation, to be fair</li>
+          </ul>
+        </div>
+
+        <div className="relative rounded-3xl border border-volt/50 bg-panel p-8 shadow-glow">
+          <span className="absolute -top-3 left-8 rounded-full bg-volt px-3 py-1 text-xs font-bold text-white">
+            Founding price, locked forever
+          </span>
+          <div className="text-sm font-medium text-cream">NessoTalk</div>
+          <div className="mt-2 font-display text-5xl text-cream">
+            $4.99<span className="text-lg text-mist">/mo</span>
+          </div>
+          <div className="mt-1 text-sm text-mist">or $39/year (35% off)</div>
+          <ul className="mt-6 space-y-3 text-sm text-cream/90">
+            {OURS.map((f) => (
+              <li key={f} className="flex gap-2">
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-volt" />
+                {f}
+              </li>
+            ))}
+          </ul>
+          <Link
+            href="/start"
+            className="mt-8 block rounded-xl bg-volt py-3.5 text-center font-semibold text-white transition hover:bg-voltdim"
+          >
+            Start 14 days free
+          </Link>
+          <p className="mt-3 text-center text-xs text-mist">No card required</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const QA = [
+  [
+    "Is my audio really private?",
+    "Yes. Speech-to-text runs entirely on your Mac. The only time text touches the cloud is when you explicitly pick an AI rewrite mode (Summarize or Professional), and that sends text, never audio. Exact-words mode is 100% offline.",
+  ],
+  [
+    "How is this different from Wispr Flow?",
+    "Same core magic: talk anywhere, clean text appears. The differences: transcription is local instead of cloud, you get voice editing of selected text, and it costs about a third as much.",
+  ],
+  [
+    "What do I need to run it?",
+    "A Mac with Apple Silicon (M1 or newer) runs it best. You grant microphone and accessibility permissions once during a guided setup.",
+  ],
+  [
+    "What happens after the 14-day trial?",
+    "Your trial starts the moment you create an account, no card needed. When it ends you can subscribe for $4.99/mo or $39/yr. Founding-member pricing is locked for as long as you stay subscribed.",
+  ],
+  [
+    "Can I cancel anytime?",
+    "Yes, one click from your dashboard. No calls, no retention flows, no guilt trips.",
+  ],
+];
+
+export function FAQ() {
+  return (
+    <section id="faq" className="border-t border-edge bg-panel/40 py-24">
+      <div className="mx-auto max-w-3xl px-5">
+        <h2 className="text-center font-display text-4xl text-cream">
+          Questions, answered
+        </h2>
+        <div className="mt-10 space-y-4">
+          {QA.map(([q, a]) => (
+            <details key={q} className="group rounded-2xl border border-edge bg-ink/60 p-6">
+              <summary className="cursor-pointer list-none font-semibold text-cream marker:content-none">
+                {q}
+              </summary>
+              <p className="mt-3 text-sm leading-6 text-mist">{a}</p>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}

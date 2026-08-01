@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+::selection {
+  background: rgba(124, 92, 255, 0.4);
+}
+
+/* Waveform bars: each bar loops its own scaleY breathing; delays are set inline. */
+@keyframes bar {
+  0%, 100% { transform: scaleY(0.18); }
+  20% { transform: scaleY(0.95); }
+  40% { transform: scaleY(0.4); }
+  60% { transform: scaleY(0.8); }
+  80% { transform: scaleY(0.3); }
+}
+
+.wavebar {
+  animation: bar 1.6s ease-in-out infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+
+@keyframes floaty {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.floaty {
+  animation: floaty 7s ease-in-out infinite;
+}
+
+@keyframes fadeup {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fadeup {
+  animation: fadeup 0.7s ease-out both;
+}
+
+.grain {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 3px 3px;
+}
