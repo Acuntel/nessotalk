@@ -162,22 +162,52 @@ internal sealed class AppConfig
 
     public string Hotkey => Get("HOTKEY", "RightCtrl");
     public string InputDevice => Get("INPUT_DEVICE", "builtin");
-    public int MaxRecordMinutes => GetInt("MAX_RECORD_MINUTES", 45, 1, 180);
+
+    // MAX_RECORD_SECONDS is the canonical key (shared with the Mac build's config
+    // schema). MAX_RECORD_MINUTES is still honored so existing installs that only set
+    // the old key keep working.
+    public int MaxRecordSeconds
+    {
+        get
+        {
+            if (_values.TryGetValue("MAX_RECORD_SECONDS", out var raw) && int.TryParse(raw, out var seconds))
+                return Math.Clamp(seconds, 10, 10800);
+            return GetInt("MAX_RECORD_MINUTES", 45, 1, 180) * 60;
+        }
+    }
+
     public int MicCheckSeconds => GetInt("MICCHECK_SECONDS", 5, 1, 30);
     public bool AutoPaste => GetBool("AUTO_PASTE", true);
-    public bool PreprocessAudio => GetBool("PREPROCESS_AUDIO", true);
+    public bool PreprocessAudio => GetBoolWithFallback("PREPROCESS", "PREPROCESS_AUDIO", true);
     public string FfmpegPath => Expand(Get("FFMPEG_PATH", "ffmpeg.exe"));
     public string WhisperCli => Expand(Get("WHISPER_CLI", Path.Combine(_paths.Root, "whisper", "whisper-cli.exe")));
     public string WhisperModel => Expand(Get("WHISPER_MODEL", Path.Combine(_paths.Root, "models", "ggml-large-v3-turbo-q5_0.bin")));
     public string VadModel => Expand(Get("VAD_MODEL", Path.Combine(_paths.Root, "models", "ggml-silero-v6.2.0.bin")));
     public int WhisperTimeoutSeconds => GetInt("WHISPER_TIMEOUT_SECONDS", 600, 10, 3600);
-    public string WhisperLanguage => Get("WHISPER_LANGUAGE", "en");
+    public string WhisperLanguage => GetWithFallback("LANGUAGE", "WHISPER_LANGUAGE", "en");
+    // Whisper mode: quiet-voice dictation. Lowers the whisper.cpp VAD threshold so soft
+    // speech is not gated out (a lighter-weight analog of the Mac build's whisper-mode
+    // gain/VAD tuning; see WhisperTranscriber.TranscribeAsync).
+    public bool WhisperMode => GetBool("WHISPER_MODE", false);
     public int WhisperThreads => GetInt("WHISPER_THREADS", 0, 0, 256);
     public string WhisperPrompt => PromptLimiter.Limit(Get("WHISPER_PROMPT", "Wispr Flow, ptt-dictate, Codex, Next.js, TypeScript, PowerShell, Windows, whisper.cpp."));
     public string Glossary => Get("GLOSSARY", "");
     public string StartSound => Expand(Get("START_SOUND", ""));
     public string StopSound => Expand(Get("STOP_SOUND", ""));
     public string DoneSound => Expand(Get("DONE_SOUND", ""));
+
+    // License / lease check-in (see License.cs). Empty LICENSE_KEY means unlicensed
+    // unless a ".dev" file sits next to the config.
+    public string LicenseKey => Get("LICENSE_KEY", "");
+    public string LicenseUrl => Get("LICENSE_URL", "https://nesso.tech/api/license");
+
+    // AI polish via the nesso.tech server proxy (see Polish.cs).
+    public string PolishProxyUrl => Get("POLISH_PROXY_URL", "https://nesso.tech/api/polish");
+    public string DefaultMode => NormalizeMode(Get("DEFAULT_MODE", "summarize"));
+    public string Style => Get("STYLE", "");
+    public string ProApps => Get("PRO_APPS", "OUTLOOK,Teams,slack,discord,WhatsApp");
+    public string PolishApps => Get("POLISH_APPS", "WindowsTerminal,Code,Cursor,Warp,Claude,Codex");
+    public int PolishMinWords => GetInt("POLISH_MIN_WORDS", 12, 1, 100000);
 
     public static AppConfig Load(string path, AppPaths paths)
     {
@@ -205,6 +235,25 @@ internal sealed class AppConfig
     private bool GetBool(string key, bool fallback) => bool.TryParse(Get(key, fallback.ToString()), out var value) ? value : fallback;
     private int GetInt(string key, int fallback, int min, int max) => int.TryParse(Get(key, fallback.ToString(CultureInfo.InvariantCulture)), out var value) ? Math.Clamp(value, min, max) : fallback;
     private static string Expand(string value) => Environment.ExpandEnvironmentVariables(value.Trim().Trim('"'));
+
+    // Reads primaryKey if set, otherwise falls back to a legacy key name, so renaming a
+    // config key to match the Mac build's schema does not break an existing install that
+    // only set the old name.
+    private string GetWithFallback(string primaryKey, string fallbackKey, string fallbackValue)
+    {
+        if (_values.TryGetValue(primaryKey, out var primary) && !string.IsNullOrWhiteSpace(primary)) return primary;
+        if (_values.TryGetValue(fallbackKey, out var legacy) && !string.IsNullOrWhiteSpace(legacy)) return legacy;
+        return fallbackValue;
+    }
+
+    private bool GetBoolWithFallback(string primaryKey, string fallbackKey, bool fallbackValue) =>
+        bool.TryParse(GetWithFallback(primaryKey, fallbackKey, fallbackValue.ToString()), out var value) ? value : fallbackValue;
+
+    private static string NormalizeMode(string value)
+    {
+        var normalized = value.Trim().ToLowerInvariant();
+        return normalized is "summarize" or "professional" or "normal" ? normalized : "summarize";
+    }
 }
 
 internal static class PromptLimiter
@@ -273,11 +322,13 @@ internal sealed class DictationContext : ApplicationContext
         };
         _tray.DoubleClick += (_, _) => ToggleRecording();
 
-        _hooks = new InputHooks(config.Hotkey, () => _invoker.BeginInvoke(ToggleRecording));
+        _hooks = new InputHooks(config.Hotkey, () => _invoker.BeginInvoke(ToggleRecording),
+            () => _recorder is not null, () => _invoker.BeginInvoke(CancelRecording));
         _hooks.Install();
         _ipc = new IpcServer(HandleIpcAsync);
         _ipc.Start();
-        ShowBalloon("ptt-dictate is ready", $"Tap {config.Hotkey} to start or stop dictation.");
+        LicenseManager.Start(config, paths);
+        ShowBalloon("ptt-dictate is ready", $"Tap {config.Hotkey} to start or stop dictation. Press Escape to cancel a recording.");
     }
 
     private void ToggleRecording()
@@ -294,13 +345,22 @@ internal sealed class DictationContext : ApplicationContext
 
     private void StartRecording()
     {
+        if (!LicenseManager.IsLicensed)
+        {
+            Log.Info("Recording blocked: no active license");
+            _overlay.ShowError("Not licensed. Visit nesso.tech to activate ptt-dictate.");
+            SoundCue.PlayError();
+            ShowBalloon("Not licensed", "Visit nesso.tech to activate your copy of ptt-dictate before dictating.");
+            return;
+        }
+
         try
         {
             var raw = Path.Combine(_paths.Recordings, $"dictation-{DateTime.Now:yyyyMMdd-HHmmss-fff}-raw.wav");
             _recorder = new AudioRecorder(_config, _paths);
             _recorder.Start(raw);
             _recordingCap = new System.Threading.Timer(_ => _invoker.BeginInvoke(() => _ = StopRecordingAsync("automatic safety cap")), null,
-                TimeSpan.FromMinutes(_config.MaxRecordMinutes), Timeout.InfiniteTimeSpan);
+                TimeSpan.FromSeconds(_config.MaxRecordSeconds), Timeout.InfiniteTimeSpan);
             SetTrayState(DaemonState.Recording);
             _overlay.ShowListening();
             SoundCue.PlayStart(_config.StartSound);
@@ -315,6 +375,35 @@ internal sealed class DictationContext : ApplicationContext
             SoundCue.PlayError();
             ShowBalloon("Microphone error", ex.Message);
         }
+    }
+
+    // Escape cancels an in-progress recording outright: nothing is transcribed and
+    // nothing is pasted. Has no effect once StopRecordingAsync has already taken over
+    // (an in-flight transcription is always allowed to finish).
+    private void CancelRecording()
+    {
+        if (_recorder is null) return;
+        var recorder = _recorder;
+        _recorder = null;
+        _recordingCap?.Dispose();
+        _recordingCap = null;
+        SetTrayState(DaemonState.Ready);
+        _overlay.HideImmediately();
+        SoundCue.PlayError();
+        Log.Info("Recording canceled with Escape; nothing was transcribed or pasted");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var capture = await recorder.StopAsync();
+                await recorder.DisposeAsync();
+                File.Delete(capture.WavPath);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Could not clean up a canceled recording", ex);
+            }
+        });
     }
 
     private async Task StopRecordingAsync(string reason)
@@ -348,6 +437,8 @@ internal sealed class DictationContext : ApplicationContext
                 ShowBalloon("No speech recognized", "VAD filtered the recording, so nothing was pasted.");
                 return;
             }
+
+            formatted = await Task.Run(() => PolishClient.Apply(formatted, _config));
 
             if (!_config.AutoPaste)
             {
@@ -613,6 +704,14 @@ internal sealed class DictationOverlay : Form
     public void ShowDone(string detail) => ShowState(OverlayState.Done, detail, TimeSpan.FromSeconds(1.8));
     public void ShowNoSpeech() => ShowState(OverlayState.NoSpeech, "No speech detected", TimeSpan.FromSeconds(2.2));
     public void ShowError(string detail) => ShowState(OverlayState.Error, detail, TimeSpan.FromSeconds(3));
+
+    // Used for an outright cancel (Escape): stop the animation and hide immediately,
+    // instead of animating through a Done/Error state that implies something was pasted.
+    public void HideImmediately()
+    {
+        _animationTimer.Stop();
+        Hide();
+    }
 
     private void ShowState(OverlayState state, string detail, TimeSpan visibleFor)
     {
@@ -903,8 +1002,10 @@ internal sealed class WhisperTranscriber
             "-otxt", "-of", outputBase
         };
         if (_config.WhisperThreads > 0) args.AddRange(["-t", _config.WhisperThreads.ToString(CultureInfo.InvariantCulture)]);
+        // Whisper mode: lower the VAD threshold so soft/quiet speech is not gated out.
+        if (_config.WhisperMode) args.AddRange(["-vt", "0.15"]);
 
-        Log.Info("Starting whisper decode with VAD, beam=5, entropy=2.8, max-context=128");
+        Log.Info($"Starting whisper decode with VAD, beam=5, entropy=2.8, max-context=128{(_config.WhisperMode ? ", whisper-mode" : "")}");
         await ProcessRunner.RunAsync(_config.WhisperCli, args, TimeSpan.FromSeconds(_config.WhisperTimeoutSeconds), cancellationToken);
         var transcriptFile = outputBase + ".txt";
         if (!File.Exists(transcriptFile)) throw new InvalidOperationException("whisper-cli completed without producing a transcript file.");
@@ -1077,18 +1178,23 @@ internal sealed class InputHooks : IDisposable
     private const int WmSysKeyDown = 0x0104;
     private const int WmSysKeyUp = 0x0105;
     private const int LlkhfInjected = 0x10;
+    private const uint VkEscape = 0x1B;
     private readonly uint _target;
     private readonly Action _onTap;
+    private readonly Func<bool> _isRecording;
+    private readonly Action _onEscape;
     private readonly NativeMethods.HookProc _keyboardProc;
     private readonly NativeMethods.HookProc _mouseProc;
     private nint _keyboardHook;
     private nint _mouseHook;
     private bool _candidate;
 
-    public InputHooks(string hotkey, Action onTap)
+    public InputHooks(string hotkey, Action onTap, Func<bool> isRecording, Action onEscape)
     {
         _target = ParseHotkey(hotkey);
         _onTap = onTap;
+        _isRecording = isRecording;
+        _onEscape = onEscape;
         _keyboardProc = KeyboardCallback;
         _mouseProc = MouseCallback;
     }
@@ -1108,6 +1214,14 @@ internal sealed class InputHooks : IDisposable
         var message = (int)wParam;
         var down = message is WmKeyDown or WmSysKeyDown;
         var up = message is WmKeyUp or WmSysKeyUp;
+        // Escape cancels an active recording outright. Only swallowed while actually
+        // recording, so Escape behaves normally for every other app the rest of the time.
+        if (data.vkCode == VkEscape && down && _isRecording())
+        {
+            _candidate = false;
+            _onEscape();
+            return 1;
+        }
         if (data.vkCode == _target)
         {
             if (down && !_candidate)
@@ -1571,6 +1685,8 @@ internal static class NativeMethods
     internal static extern short GetAsyncKeyState(int virtualKey);
     [DllImport("user32.dll")]
     internal static extern nint GetForegroundWindow();
+    [DllImport("user32.dll")]
+    internal static extern uint GetWindowThreadProcessId(nint window, out uint processId);
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool SetForegroundWindow(nint window);

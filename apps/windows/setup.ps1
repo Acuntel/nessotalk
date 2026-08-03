@@ -71,10 +71,60 @@ else {
     }
 }
 
+# The download ships a LICENSE_KEY file next to this script for a purchased copy, so the
+# user never has to find or type a key. If present, write it into the config.
+$LicenseKeyValue = $null
+$LicenseKeyFile = Get-ChildItem -Path $ProjectRoot -Filter 'LICENSE_KEY*' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($LicenseKeyFile) {
+    $Candidate = (Get-Content -Raw -LiteralPath $LicenseKeyFile.FullName).Trim()
+    if ($Candidate) {
+        $LicenseKeyValue = $Candidate
+        $ConfigText = Get-Content -Raw -LiteralPath $Config
+        if ($ConfigText -match '(?m)^LICENSE_KEY=.*$') {
+            $ConfigText = $ConfigText -replace '(?m)^LICENSE_KEY=.*$', "LICENSE_KEY=$LicenseKeyValue"
+        }
+        else {
+            $ConfigText = $ConfigText.TrimEnd() + "`nLICENSE_KEY=$LicenseKeyValue`n"
+        }
+        Set-Content -LiteralPath $Config -Value $ConfigText -Encoding utf8
+        Write-Host "Applied the license key from $($LicenseKeyFile.Name) to the config."
+    }
+}
+
 & (Join-Path $ProjectRoot 'ptt.ps1') build
 if ($LASTEXITCODE -ne 0) { throw "Build failed with exit code $LASTEXITCODE." }
+
+& (Join-Path $ProjectRoot 'install.ps1')
+
+$ConfigText = Get-Content -Raw -LiteralPath $Config
+$HotkeyMatch = [regex]::Match($ConfigText, '(?m)^HOTKEY=(.+)$')
+$HotkeyDisplay = if ($HotkeyMatch.Success) { $HotkeyMatch.Groups[1].Value.Trim() } else { 'RightCtrl' }
+$LicenseKeyMatch = [regex]::Match($ConfigText, '(?m)^LICENSE_KEY=(.*)$')
+$HasLicenseKey = $LicenseKeyMatch.Success -and $LicenseKeyMatch.Groups[1].Value.Trim().Length -gt 0
+
 Write-Host ''
-Write-Host 'Setup complete. Next:'
-Write-Host '  .\ptt.ps1 devices'
-Write-Host '  .\ptt.ps1 miccheck'
-Write-Host '  .\ptt.ps1 install'
+Write-Host '============================================================'
+Write-Host ' Setup complete. ptt-dictate is installed and running.'
+Write-Host '============================================================'
+Write-Host ''
+Write-Host 'What happens next:'
+Write-Host "  1. ptt-dictate is already running in your system tray. Look for its icon near the clock."
+Write-Host "  2. Click into any text box, browser, or document where you want text to appear."
+Write-Host "  3. Tap $HotkeyDisplay once to start recording, then speak."
+Write-Host "  4. Tap $HotkeyDisplay again to stop. Your words are transcribed locally and pasted automatically."
+Write-Host "  5. Press Escape at any point while recording to cancel. Nothing will be transcribed or pasted."
+Write-Host ''
+Write-Host 'Give it a try now: click into any text box and tap the hotkey.'
+Write-Host ''
+Write-Host 'Useful commands, run from this folder:'
+Write-Host '  .\ptt.ps1 devices      Lists microphones and shows which one is selected.'
+Write-Host '  .\ptt.ps1 miccheck     Records a short test clip and prints the transcript.'
+Write-Host '  .\ptt.ps1 log          Tails the daemon log.'
+Write-Host '  .\ptt.ps1 uninstall    Removes the scheduled task that starts ptt-dictate at login.'
+Write-Host ''
+if (-not $HasLicenseKey) {
+    Write-Host 'No license key is set. Recording will refuse to start until you activate your'
+    Write-Host 'copy. Visit nesso.tech to get a license key, then add it to:'
+    Write-Host "  $Config"
+    Write-Host ''
+}

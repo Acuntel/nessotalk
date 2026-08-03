@@ -51,9 +51,16 @@ PRO_APPS=mobilesms,messages,mail,outlook,whatsapp,telegram,slack,discord
 DEFAULT_MODE=summarize
 # Lease (v8.2): customer builds set the license key from the nesso.tech
 # dashboard. Empty = dev build, enforcement off.
+
+# How NessoTalk should always write, e.g. "warm and direct, never stiff".
+STYLE=
+
+# Key that starts and stops dictation. 54 = Right Command, 55 = Left Command.
+HOTKEY=54
+
+# Where the app checks that your subscription is active.
+LICENSE_URL=https://nesso.tech/api/license
+# Where the AI rewrites run, using your license instead of your own API key.
+POLISH_PROXY_URL=https://nesso.tech/api/polish
 POLISH_KEY=
 LICENSE_KEY=
-
-# Standing instruction for how NessoTalk should always write, e.g.
-# "warm and direct, never stiff" or "formal, full sentences".
-STYLE=

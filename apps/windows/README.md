@@ -88,7 +88,7 @@ dotnet "$env:LOCALAPPDATA\ptt-dictate\ptt-dictate.dll" --transcribe-file .\sampl
 3. Start in one app, switch apps while recording, stop, and verify the stop-time app receives the paste.
 4. Sleep and resume Windows, then perform another dictation without restarting. WASAPI capture is created fresh for every recording.
 5. Run `ptt build`, restart, and verify the daemon works without a permission re-grant. Windows does not key mic/input-hook access to an ad-hoc code signature.
-6. Temporarily set `MAX_RECORD_MINUTES=1`, walk away, and verify the log records `automatic safety cap`.
+6. Temporarily set `MAX_RECORD_SECONDS=60`, walk away, and verify the log records `automatic safety cap`.
 
 ## Optional phases
 

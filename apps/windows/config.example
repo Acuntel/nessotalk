@@ -1,5 +1,6 @@
 # ptt-dictate configuration. Copy to %LOCALAPPDATA%\ptt-dictate\config.
 # Values are read each time the daemon starts; no rebuild is needed.
+# Key names match the shared schema used by the Mac build.
 
 # RightCtrl is the Windows-friendly default. Also supported: RightWin, RightAlt, F13-F24.
 HOTKEY=RightCtrl
@@ -8,10 +9,10 @@ HOTKEY=RightCtrl
 # exact endpoint ID printed by: .\ptt.ps1 devices
 INPUT_DEVICE=builtin
 
-MAX_RECORD_MINUTES=45
+MAX_RECORD_SECONDS=2700
 MICCHECK_SECONDS=5
 AUTO_PASTE=true
-PREPROCESS_AUDIO=true
+PREPROCESS=true
 FFMPEG_PATH=ffmpeg.exe
 
 # whisper.cpp paths. setup.ps1 fills these in when it installs the runtime.
@@ -19,9 +20,13 @@ WHISPER_CLI=%LOCALAPPDATA%\ptt-dictate\whisper\whisper-cli.exe
 WHISPER_MODEL=%LOCALAPPDATA%\ptt-dictate\models\ggml-large-v3-turbo-q5_0.bin
 VAD_MODEL=%LOCALAPPDATA%\ptt-dictate\models\ggml-silero-v6.2.0.bin
 WHISPER_TIMEOUT_SECONDS=600
-WHISPER_LANGUAGE=en
+# Decode language: en, es, ... See whisper.cpp for the full list of supported codes.
+LANGUAGE=en
 WHISPER_THREADS=0
 WHISPER_PROMPT=Wispr Flow, ptt-dictate, Codex, Next.js, TypeScript, PowerShell, Windows, whisper.cpp.
+# Whisper mode: quiet-voice dictation. Lowers the VAD threshold so soft speech is not
+# gated out. Toggle this on if you tend to dictate at a whisper.
+WHISPER_MODE=false
 
 # Semicolon-delimited regex=>replacement pairs. Invalid regexes are logged and skipped.
 GLOSSARY=\bwispr\s*flow\b=>Wispr Flow;\bnext\s*(?:\.\s*)?js\b=>Next.js;\btype\s*script\b=>TypeScript;\bpower\s*shell\b=>PowerShell;\bwhisper\s*(?:\.\s*)?cpp\b=>whisper.cpp;\bcodex\b=>Codex
@@ -31,11 +36,28 @@ START_SOUND=
 STOP_SOUND=
 DONE_SOUND=
 
-# Optional rolling decode/server/LLM polish are deliberately off until configured.
-WHISPER_SERVER_URL=
-ROLLING_SECONDS=0
-POLISH_ENABLED=false
-POLISH_ENDPOINT=
-POLISH_API_KEY=
-POLISH_MODEL=
+# License. Get your key from your nesso.tech dashboard. Recording refuses to start
+# without an active license. Leave this blank and add a file named ".dev" next to this
+# config (same folder) to run unlicensed on a development machine.
+LICENSE_KEY=
+LICENSE_URL=https://nesso.tech/api/license
+
+# AI polish: after transcription, a licensed install can send the transcript to the
+# nesso.tech proxy for a rewrite before it is pasted. Any error, timeout, or untrustworthy
+# result pastes the raw transcript instead, so dictation never blocks or loses your words.
+# Say "verbatim" as the first word of a dictation to always skip polishing for that clip.
+POLISH_PROXY_URL=https://nesso.tech/api/polish
+# What a dictation delivers when the foreground app matches neither POLISH_APPS nor
+# PRO_APPS: summarize | professional | normal.
+DEFAULT_MODE=summarize
+# Standing instruction for how the writing should always sound, for example "warm and
+# direct" or "formal, never casual". Applied to every rewrite. Blank disables this.
+STYLE=
+# Foreground process names (comma-separated, case-insensitive, matched as a substring)
+# that always get the professional cleanup rewrite.
+PRO_APPS=OUTLOOK,Teams,slack,discord,WhatsApp
+# Foreground process names that always get the AI prompt-expansion rewrite.
 POLISH_APPS=WindowsTerminal,Code,Cursor,Warp,Claude,Codex
+# Dictations shorter than this many words paste raw. A rewrite round trip on a
+# one-liner is pure latency with nothing worth rewriting.
+POLISH_MIN_WORDS=12

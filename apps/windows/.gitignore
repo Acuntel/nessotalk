@@ -18,3 +18,4 @@ TestResults/
 !.env.example
 ptt.log
 recordings/
+LICENSE_KEY*
