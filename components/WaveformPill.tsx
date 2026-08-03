@@ -31,36 +31,36 @@ export default function WaveformPill() {
   const shown = SCRIPT.slice(Math.max(0, count - 16), count).join(" ");
 
   return (
-    <div className="floaty mx-auto w-full max-w-2xl rounded-3xl border border-edge bg-panel/90 p-5 shadow-pill backdrop-blur">
+    <div className="floaty mx-auto w-full max-w-2xl rounded-3xl border border-line bg-card/90 p-5 shadow-pill backdrop-blur">
       <div className="flex items-center justify-between">
-        <span className="font-mono text-sm text-mist">
+        <span className="font-mono text-sm text-muted">
           0:{String(secs).padStart(2, "0")}
         </span>
         <div className="flex h-8 items-center gap-[3px]">
           {BARS.map((b, i) => (
             <span
               key={i}
-              className="wavebar h-full w-[3px] rounded-full bg-cream/90"
+              className="wavebar h-full w-[3px] rounded-full bg-ink/90"
               style={{ animationDelay: `${b.delay}ms`, animationDuration: `${b.dur}ms` }}
             />
           ))}
         </div>
-        <span className="text-xs text-mist">Right ⌘ to stop</span>
+        <span className="text-xs text-muted">Right ⌘ to stop</span>
       </div>
 
-      <p className="mt-4 min-h-[3.5rem] text-left text-lg font-medium leading-7 text-cream">
+      <p className="mt-4 min-h-[3.5rem] text-left text-lg font-medium leading-7 text-ink">
         {shown}
-        <span className="ml-1 inline-block h-4 w-[2px] animate-pulse bg-volt align-middle" />
+        <span className="ml-1 inline-block h-4 w-[2px] animate-pulse bg-rose align-middle" />
       </p>
 
       <div className="mt-4 flex justify-center gap-2">
-        <span className="rounded-full bg-white/10 px-4 py-1.5 text-xs font-medium text-mist">
+        <span className="rounded-full bg-ink/[0.06] px-4 py-1.5 text-xs font-medium text-muted">
           Summarize
         </span>
-        <span className="rounded-full bg-white/10 px-4 py-1.5 text-xs font-medium text-mist">
+        <span className="rounded-full bg-ink/[0.06] px-4 py-1.5 text-xs font-medium text-muted">
           Normal
         </span>
-        <span className="rounded-full bg-volt/30 px-4 py-1.5 text-xs font-bold text-cream ring-1 ring-volt/60">
+        <span className="rounded-full bg-rose/30 px-4 py-1.5 text-xs font-bold text-ink ring-1 ring-rose/60">
           Professional
         </span>
       </div>

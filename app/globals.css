@@ -7,7 +7,7 @@ html {
 }
 
 ::selection {
-  background: rgba(124, 92, 255, 0.4);
+  background: rgba(208, 160, 152, 0.45);
 }
 
 /* Waveform bars: each bar loops its own scaleY breathing; delays are set inline. */
@@ -42,6 +42,6 @@ html {
 }
 
 .grain {
-  background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(80, 45, 35, 0.045) 1px, transparent 1px);
   background-size: 3px 3px;
 }

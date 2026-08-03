@@ -2,8 +2,13 @@
 # NessoTalk for Mac: beta installer (build-from-source).
 # Usage: unzip, then:  cd nessotalk-mac && ./install.sh YOUR-LICENSE-KEY
 set -e
-KEY="$1"
 DIR="$HOME/.dictation"
+# Your download already carries your key, so there is nothing to type. Passing
+# one as an argument still works if you ever need to swap it.
+KEY="$1"
+if [ -z "$KEY" ] && [ -f "LICENSE_KEY" ]; then
+  KEY=$(tr -d ' \t\r\n' < LICENSE_KEY)
+fi
 echo "== NessoTalk installer =="
 
 if ! command -v brew >/dev/null; then
@@ -29,9 +34,10 @@ if [ -n "$KEY" ]; then
   grep -q '^LICENSE_KEY=' "$DIR/config" \
     && sed -i '' -E "s/^LICENSE_KEY=.*/LICENSE_KEY=$KEY/" "$DIR/config" \
     || printf '\nLICENSE_KEY=%s\n' "$KEY" >> "$DIR/config"
-  echo "-> license key installed"
+  echo "-> license activated"
 else
-  echo "!! no license key given; get yours at https://nesso.tech and re-run: ./install.sh YOUR-KEY"
+  echo "!! No license key found. NessoTalk will not record until one is set."
+  echo "   Sign in at https://nesso.tech and download your copy again."
 fi
 chmod +x "$DIR/ptt"
 

@@ -13,51 +13,51 @@ const OURS = [
 export default function Pricing() {
   return (
     <section id="pricing" className="mx-auto max-w-6xl px-5 py-24">
-      <h2 className="text-center font-display text-4xl text-cream sm:text-5xl">
+      <h2 className="text-center font-display text-4xl text-ink sm:text-5xl">
         A third of the price. On purpose.
       </h2>
-      <p className="mx-auto mt-4 max-w-2xl text-center text-mist">
+      <p className="mx-auto mt-4 max-w-2xl text-center text-muted">
         The big-name dictation tool runs $12 to $15 a month, forever. NessoTalk
         does the same job on your own hardware, so we can charge a lot less.
       </p>
 
       <div className="mx-auto mt-14 grid max-w-4xl gap-6 sm:grid-cols-2">
-        <div className="rounded-3xl border border-edge bg-panel/40 p-8">
-          <div className="text-sm font-medium text-mist">The other guys</div>
-          <div className="mt-2 font-display text-4xl text-mist">
+        <div className="rounded-3xl border border-line bg-card/40 p-8">
+          <div className="text-sm font-medium text-muted">The other guys</div>
+          <div className="mt-2 font-display text-4xl text-muted">
             $15<span className="text-lg">/mo</span>
           </div>
-          <ul className="mt-6 space-y-3 text-sm text-mist">
-            <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-mist/60" />Audio processed in their cloud</li>
-            <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-mist/60" />$180 a year, every year</li>
-            <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-mist/60" />Great dictation, to be fair</li>
+          <ul className="mt-6 space-y-3 text-sm text-muted">
+            <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-muted/60" />Audio processed in their cloud</li>
+            <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-muted/60" />$180 a year, every year</li>
+            <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-muted/60" />Great dictation, to be fair</li>
           </ul>
         </div>
 
-        <div className="relative rounded-3xl border border-volt/50 bg-panel p-8 shadow-glow">
-          <span className="absolute -top-3 left-8 rounded-full bg-volt px-3 py-1 text-xs font-bold text-white">
+        <div className="relative rounded-3xl border border-rose/50 bg-card p-8 shadow-glow">
+          <span className="absolute -top-3 left-8 rounded-full bg-rose px-3 py-1 text-xs font-bold text-white">
             Founding price, locked forever
           </span>
-          <div className="text-sm font-medium text-cream">NessoTalk</div>
-          <div className="mt-2 font-display text-5xl text-cream">
-            $4.99<span className="text-lg text-mist">/mo</span>
+          <div className="text-sm font-medium text-ink">NessoTalk</div>
+          <div className="mt-2 font-display text-5xl text-ink">
+            $4.99<span className="text-lg text-muted">/mo</span>
           </div>
-          <div className="mt-1 text-sm text-mist">or $39/year (35% off)</div>
-          <ul className="mt-6 space-y-3 text-sm text-cream/90">
+          <div className="mt-1 text-sm text-muted">or $39/year (35% off)</div>
+          <ul className="mt-6 space-y-3 text-sm text-ink/90">
             {OURS.map((f) => (
               <li key={f} className="flex gap-2">
-                <Check className="mt-0.5 h-4 w-4 shrink-0 text-volt" />
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-rose" />
                 {f}
               </li>
             ))}
           </ul>
           <Link
             href="/start"
-            className="mt-8 block rounded-xl bg-volt py-3.5 text-center font-semibold text-white transition hover:bg-voltdim"
+            className="mt-8 block rounded-xl bg-rose py-3.5 text-center font-semibold text-white transition hover:bg-rosedeep"
           >
             Start 14 days free
           </Link>
-          <p className="mt-3 text-center text-xs text-mist">No card required</p>
+          <p className="mt-3 text-center text-xs text-muted">No card required</p>
         </div>
       </div>
     </section>
@@ -89,18 +89,18 @@ const QA = [
 
 export function FAQ() {
   return (
-    <section id="faq" className="border-t border-edge bg-panel/40 py-24">
+    <section id="faq" className="border-t border-line bg-card/40 py-24">
       <div className="mx-auto max-w-3xl px-5">
-        <h2 className="text-center font-display text-4xl text-cream">
+        <h2 className="text-center font-display text-4xl text-ink">
           Questions, answered
         </h2>
         <div className="mt-10 space-y-4">
           {QA.map(([q, a]) => (
-            <details key={q} className="group rounded-2xl border border-edge bg-ink/60 p-6">
-              <summary className="cursor-pointer list-none font-semibold text-cream marker:content-none">
+            <details key={q} className="group rounded-2xl border border-line bg-paper/60 p-6">
+              <summary className="cursor-pointer list-none font-semibold text-ink marker:content-none">
                 {q}
               </summary>
-              <p className="mt-3 text-sm leading-6 text-mist">{a}</p>
+              <p className="mt-3 text-sm leading-6 text-muted">{a}</p>
             </details>
           ))}
         </div>

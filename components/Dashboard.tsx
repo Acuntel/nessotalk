@@ -24,7 +24,6 @@ export default function Dashboard({
   const router = useRouter();
   const [entered, setEntered] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [unlockCopied, setUnlockCopied] = useState(false);
   const [note, setNote] = useState("");
 
   useEffect(() => {
@@ -48,14 +47,6 @@ export default function Dashboard({
     setTimeout(() => setCopied(false), 1500);
   }
 
-  function copyUnlock() {
-    navigator.clipboard.writeText(
-      `openssl enc -d -aes-256-cbc -pbkdf2 -k ${licenseKey} -in nessotalk-mac-beta.zip.enc -out nessotalk-mac.zip && unzip nessotalk-mac.zip`
-    );
-    setUnlockCopied(true);
-    setTimeout(() => setUnlockCopied(false), 1500);
-  }
-
   function subscribe() {
     window.location.href =
       STRIPE_MONTHLY +
@@ -70,20 +61,20 @@ export default function Dashboard({
       <main className="grain flex min-h-screen flex-col items-center justify-center px-5 text-center">
         <span className="flex h-10 items-end gap-[3px]">
           {[14, 30, 19, 36, 16].map((h, i) => (
-            <span key={i} className="w-[4px] rounded-full bg-volt" style={{ height: `${h}px` }} />
+            <span key={i} className="w-[4px] rounded-full bg-rose" style={{ height: `${h}px` }} />
           ))}
         </span>
-        <h1 className="mt-6 font-display text-4xl text-cream sm:text-5xl">
+        <h1 className="mt-6 font-display text-4xl text-ink sm:text-5xl">
           Ready when you are.
         </h1>
         <button
           onClick={start}
-          className="mt-8 rounded-xl bg-volt px-12 py-5 text-xl font-semibold text-white shadow-glow transition hover:bg-voltdim"
+          className="mt-8 rounded-xl bg-rose px-12 py-5 text-xl font-semibold text-white shadow-glow transition hover:bg-rosedeep"
         >
           Start your 14-day trial
         </button>
-        <p className="mt-3 text-xs text-mist">No card. It's already yours for two weeks.</p>
-        <button onClick={signOut} className="mt-10 flex items-center gap-1.5 text-sm text-mist hover:text-cream">
+        <p className="mt-3 text-xs text-muted">No card. It's already yours for two weeks.</p>
+        <button onClick={signOut} className="mt-10 flex items-center gap-1.5 text-sm text-muted hover:text-ink">
           <LogOut className="h-4 w-4" /> Sign out
         </button>
       </main>
@@ -96,78 +87,64 @@ export default function Dashboard({
         <div className="flex items-center justify-between">
           <Link href="/" className="font-display text-xl font-semibold">NessoTalk</Link>
           <div className="flex items-center gap-4">
-            <span className="rounded-full bg-volt/20 px-3 py-1 text-xs font-semibold text-volt ring-1 ring-volt/40">
+            <span className="rounded-full bg-rose/20 px-3 py-1 text-xs font-semibold text-rose ring-1 ring-rose/40">
               {plan === "trial" ? `Trial · ${daysLeft} days left` : plan}
             </span>
-            <button onClick={signOut} className="text-sm text-mist hover:text-cream">Sign out</button>
+            <button onClick={signOut} className="text-sm text-muted hover:text-ink">Sign out</button>
           </div>
         </div>
 
-        <div className="mt-10 rounded-3xl border border-edge bg-panel p-8">
-          <h1 className="font-display text-2xl text-cream">1. Download it</h1>
+        <div className="mt-10 rounded-3xl border border-line bg-card p-8">
+          <h1 className="font-display text-2xl text-ink">1. Download it</h1>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <a
               href="/api/download?platform=mac"
-              className="rounded-xl bg-cream py-3.5 text-center text-sm font-semibold text-ink transition hover:bg-white"
+              className="rounded-xl bg-ink py-3.5 text-center text-sm font-semibold text-paper transition hover:bg-rosedeep"
             >
                Mac
             </a>
             <a
               href="/api/download?platform=windows"
-              className="rounded-xl bg-cream py-3.5 text-center text-sm font-semibold text-ink transition hover:bg-white"
+              className="rounded-xl bg-ink py-3.5 text-center text-sm font-semibold text-paper transition hover:bg-rosedeep"
             >
               ⊞ Windows
             </a>
           </div>
-          <p className="mt-3 text-xs leading-5 text-mist">
-            Your download is locked to your account. Unlock it with the command
-            below, then run install.sh (Mac) or setup.ps1 (Windows). The
-            installer handles the one-time permissions.
+          <p className="mt-3 text-xs leading-5 text-muted">
+            Your copy comes with your license already inside it. Unzip, then run
+            install.sh (Mac) or setup.ps1 (Windows). That's the whole setup, and
+            the installer walks you through the one-time microphone permission.
           </p>
-          <button
-            onClick={copyUnlock}
-            className="mt-3 flex w-full items-center justify-between gap-3 rounded-xl border border-edge bg-ink px-4 py-3 text-left font-mono text-[11px] leading-5 text-mist hover:border-volt"
-          >
-            <span className="truncate">
-              openssl enc -d -aes-256-cbc -pbkdf2 -k {licenseKey.slice(0, 8)}... -in
-              nessotalk-mac-beta.zip.enc -out nessotalk-mac.zip
-            </span>
-            {unlockCopied ? (
-              <Check className="h-4 w-4 shrink-0 text-volt" />
-            ) : (
-              <Copy className="h-4 w-4 shrink-0 text-mist" />
-            )}
-          </button>
         </div>
 
-        <div className="mt-6 rounded-3xl border border-edge bg-panel p-8">
-          <h1 className="font-display text-2xl text-cream">2. Your license key</h1>
-          <p className="mt-1 text-sm text-mist">
-            The app checks in with this key. It stops working if your trial ends
-            or your subscription lapses, and picks right back up when you're
-            active again.
+        <div className="mt-6 rounded-3xl border border-line bg-card p-8">
+          <h1 className="font-display text-2xl text-ink">2. Your license key</h1>
+          <p className="mt-1 text-sm text-muted">
+            Already inside your download, so you only need this if you set up a
+            second computer. It stops working if your subscription lapses and
+            picks right back up when you're active again.
           </p>
           <button
             onClick={copyKey}
-            className="mt-4 flex w-full items-center justify-between rounded-xl border border-edge bg-ink px-4 py-3 font-mono text-sm text-cream hover:border-volt"
+            className="mt-4 flex w-full items-center justify-between rounded-xl border border-line bg-paper px-4 py-3 font-mono text-sm text-ink hover:border-rose"
           >
             <span className="truncate">{licenseKey}</span>
-            {copied ? <Check className="h-4 w-4 shrink-0 text-volt" /> : <Copy className="h-4 w-4 shrink-0 text-mist" />}
+            {copied ? <Check className="h-4 w-4 shrink-0 text-rose" /> : <Copy className="h-4 w-4 shrink-0 text-muted" />}
           </button>
         </div>
 
-        <div className="mt-6 rounded-3xl border border-volt/40 bg-panel p-8">
-          <h1 className="font-display text-2xl text-cream">3. Keep it after the trial</h1>
-          <p className="mt-1 text-sm text-mist">
+        <div className="mt-6 rounded-3xl border border-rose/40 bg-card p-8">
+          <h1 className="font-display text-2xl text-ink">3. Keep it after the trial</h1>
+          <p className="mt-1 text-sm text-muted">
             $4.99/mo, founding price locked forever. The other guys charge $15.
           </p>
           <button
             onClick={subscribe}
-            className="mt-4 w-full rounded-xl bg-volt py-3.5 font-semibold text-white transition hover:bg-voltdim"
+            className="mt-4 w-full rounded-xl bg-rose py-3.5 font-semibold text-white transition hover:bg-rosedeep"
           >
             Subscribe: $4.99/mo
           </button>
-          {note && <p className="mt-3 text-xs text-mist">{note}</p>}
+          {note && <p className="mt-3 text-xs text-muted">{note}</p>}
         </div>
       </div>
     </main>

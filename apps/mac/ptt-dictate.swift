@@ -1742,7 +1742,17 @@ func applyCachedToken() {
 }
 
 func checkLicense() {
-    guard !cfg.licenseKey.isEmpty else { return }
+    // No key = not licensed. (A ~/.dictation/.dev marker, which ships in no
+    // build, keeps development machines running without one.)
+    if cfg.licenseKey.isEmpty {
+        if FileManager.default.fileExists(atPath: "\(HOME)/.dictation/.dev") {
+            licenseValid = true
+            return
+        }
+        licenseValid = false
+        log("✕ no license key — sign in at nesso.tech and download your copy to activate")
+        return
+    }
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
     p.arguments = ["-s", "--max-time", "15", cfg.licenseUrl,

@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { createCipheriv, pbkdf2Sync, randomBytes } from "crypto";
-import { readFile } from "fs/promises";
+import AdmZip from "adm-zip";
 import path from "path";
 
-// Auth-gated, per-license encrypted download.
+// Auth-gated, personalized download.
 //
-// The payload is encrypted with a key derived from the caller's own license
-// key, in the same format `openssl enc -aes-256-cbc -pbkdf2` reads. A copy
-// passed to a friend is inert without that key, and handing over the key hands
-// over a revocable, seat-capped license that is also the only way to reach the
-// AI rewrite features. Being straight about the limit: this raises the cost of
-// casual sharing, it does not make the bits uncopyable. Nothing does.
+// The build is assembled per request with the caller's own license key written
+// into it, so the customer never types a key or runs an unlock command: they
+// download, run the installer, and it works. Every copy is also stamped with
+// the key it was issued to, so a leaked copy identifies its source.
+//
+// The zips live outside public/ on purpose. Anything under public/ is served
+// to anyone with the URL, which would defeat this entire route.
 export const dynamic = "force-dynamic";
 
 const FILES: Record<string, string> = {
@@ -45,25 +45,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "expired" }, { status: 402 });
   }
 
-  const plain = await readFile(path.join(process.cwd(), "public", "downloads", file));
+  const zip = new AdmZip(path.join(process.cwd(), "assets", "downloads", file));
+  const root = platform === "mac" ? "nessotalk-mac" : "nessotalk-windows";
+  zip.addFile(`${root}/LICENSE_KEY`, Buffer.from(profile.license_key + "\n"));
 
-  // OpenSSL-compatible: "Salted__" + 8-byte salt + AES-256-CBC, key/iv from
-  // PBKDF2-SHA256(licenseKey, salt, 10000).
-  const salt = randomBytes(8);
-  const material = pbkdf2Sync(profile.license_key, salt, 10000, 48, "sha256");
-  const cipher = createCipheriv("aes-256-cbc", material.subarray(0, 32), material.subarray(32, 48));
-  const body = Buffer.concat([
-    Buffer.from("Salted__"),
-    salt,
-    cipher.update(plain),
-    cipher.final(),
-  ]);
-
-  return new NextResponse(body, {
+  return new NextResponse(new Uint8Array(zip.toBuffer()), {
     status: 200,
     headers: {
-      "content-type": "application/octet-stream",
-      "content-disposition": `attachment; filename="${file}.enc"`,
+      "content-type": "application/zip",
+      "content-disposition": `attachment; filename="${file}"`,
       "cache-control": "no-store",
     },
   });

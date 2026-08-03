@@ -5,21 +5,22 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#07070B",
-        panel: "#0E0E15",
-        edge: "rgba(255,255,255,0.08)",
-        mist: "#9B9BAD",
-        cream: "#F4F2EC",
-        volt: "#7C5CFF",
-        voltdim: "#6247D9",
+        // Warm Nesso palette, drawn from the app icon (#D0A098 clay rose).
+        paper: "#FBF6F3",
+        card: "#FFFFFF",
+        line: "rgba(58,38,32,0.10)",
+        muted: "#8A736C",
+        ink: "#2B211D",
+        rose: "#D0A098",
+        rosedeep: "#B47D72",
       },
       fontFamily: {
         display: ["var(--font-display)", "Georgia", "serif"],
         body: ["var(--font-body)", "system-ui", "sans-serif"],
       },
       boxShadow: {
-        pill: "0 24px 80px -16px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.06)",
-        glow: "0 0 120px 20px rgba(124,92,255,0.18)",
+        pill: "0 24px 60px -20px rgba(80,45,35,0.28), 0 0 0 1px rgba(58,38,32,0.06)",
+        glow: "0 20px 60px -18px rgba(180,125,114,0.55)",
       },
     },
   },
