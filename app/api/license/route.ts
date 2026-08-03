@@ -13,6 +13,9 @@ import { createPrivateKey, sign } from "crypto";
 // Sharing a key is bounded by seat_limit distinct machine ids.
 export const dynamic = "force-dynamic";
 
+// Bump when a new build is published to assets/downloads.
+const LATEST_VERSION = "8.5";
+
 function admin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -80,6 +83,8 @@ export async function POST(req: Request) {
       );
   }
 
+  // The app compares this against its own version and tells the user to run
+  // `ptt update` when a newer build exists. No separate update check needed.
   const payload = {
     key,
     machine,
@@ -89,5 +94,11 @@ export async function POST(req: Request) {
     // Token is good for 14 days offline; after that the app must check in again.
     exp: Date.now() + 14 * 86_400_000,
   };
-  return NextResponse.json({ valid: true, plan: p.plan, reason: "", ...signed(payload) });
+  return NextResponse.json({
+    valid: true,
+    plan: p.plan,
+    reason: "",
+    latest_version: LATEST_VERSION,
+    ...signed(payload),
+  });
 }

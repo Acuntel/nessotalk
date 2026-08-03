@@ -56,7 +56,9 @@ echo "    Done. Your speech is transcribed by this model, on this Mac."
 
 step 3 "Installing NessoTalk and activating your license."
 mkdir -p "$DIR"
-cp -f ptt-dictate.swift ptt Info.plist "$DIR/"
+cp -f ptt Info.plist "$DIR/"
+rm -rf "$DIR/PttDictate.app"
+cp -R PttDictate.app "$DIR/"
 [ -f "$DIR/snippets" ] || cp -f snippets.example "$DIR/snippets"
 [ -f "$DIR/config" ] || cp -f config.example "$DIR/config"
 if [ -n "$KEY" ]; then
@@ -84,8 +86,8 @@ cat > "$PLIST" <<EOF
 </dict></plist>
 EOF
 
-step 4 "Building and starting NessoTalk. This takes about a minute."
-cd "$DIR" && ./ptt build
+step 4 "Starting NessoTalk."
+cd "$DIR" && ./ptt start
 echo "    NessoTalk is running. Look for the microphone icon in your menu bar."
 
 step 5 "Granting the two permissions."

@@ -93,6 +93,27 @@ case "$1" in
     launchctl kickstart -p "$DOMAIN/$LABEL"
     echo "rebuilt + restarted. Watch: ptt log"
     ;;
+  update)
+    # Pull the newest signed build from nesso.tech using the licensed key that
+    # is already in the config, then restart. No reinstall, no re-download of
+    # the speech models.
+    KEY=$(grep -E '^LICENSE_KEY=' "$DIR/config" | tail -1 | cut -d= -f2)
+    if [ -z "$KEY" ]; then echo "No license key in $DIR/config. Sign in at nesso.tech."; exit 1; fi
+    TMP=$(mktemp -d)
+    echo "downloading the latest build..."
+    if ! curl -fsSL -H "x-license-key: $KEY" "https://nesso.tech/api/update?platform=mac" -o "$TMP/nt.zip"; then
+      echo "Could not reach the update server, or your subscription is not active."; rm -rf "$TMP"; exit 1
+    fi
+    unzip -qo "$TMP/nt.zip" -d "$TMP" || { echo "The downloaded file was not readable."; rm -rf "$TMP"; exit 1; }
+    APPSRC=$(find "$TMP" -maxdepth 3 -name PttDictate.app -print -quit)
+    if [ -z "$APPSRC" ]; then echo "That build did not contain an app."; rm -rf "$TMP"; exit 1; fi
+    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null
+    rm -rf "$APP" && cp -R "$APPSRC" "$DIR/"
+    launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null
+    launchctl kickstart -p "$DOMAIN/$LABEL"
+    rm -rf "$TMP"
+    echo "updated and restarted. Your settings and dictionary were kept."
+    ;;
   devices)  "$BIN" --devices ;;
   miccheck) "$BIN" --mic-check "${2:-}" ;;
   server)

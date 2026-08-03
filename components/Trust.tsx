@@ -1,11 +1,11 @@
 import { Reveal } from "@/components/Reveal";
-import { Eye, MicOff, CreditCard, UserRound } from "lucide-react";
+import { ShieldCheck, MicOff, CreditCard, UserRound } from "lucide-react";
 
 const POINTS = [
   {
-    icon: Eye,
-    title: "You can read every line before you run it",
-    body: "NessoTalk ships as readable source code rather than a sealed program, so you or anyone you trust can open it and see exactly what it does. Almost no paid software will let you do that, and it is the reason you do not have to take our word for any of the promises on this page.",
+    icon: ShieldCheck,
+    title: "Nothing installs without showing you first",
+    body: "The installer explains every step before it takes it, and your Mac or PC asks your permission for the microphone in its own words, not ours. You watch the whole thing happen, and you can stop it at any point.",
   },
   {
     icon: MicOff,
