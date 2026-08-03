@@ -5,6 +5,7 @@ import Pricing, { FAQ } from "@/components/Pricing";
 import { Transform } from "@/components/Transform";
 import { Problem } from "@/components/Problem";
 import { ScrollTour } from "@/components/ScrollTour";
+import { Trust } from "@/components/Trust";
 import {
   ProofBar,
   HowItWorks,
@@ -71,6 +72,7 @@ export default function Home() {
       <ScrollTour />
       <HowItWorks />
       <Pricing />
+      <Trust />
       <FAQ />
       <FinalCTA />
       <Footer />
