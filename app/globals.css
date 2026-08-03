@@ -45,3 +45,18 @@ html {
   background-image: radial-gradient(rgba(80, 45, 35, 0.045) 1px, transparent 1px);
   background-size: 3px 3px;
 }
+
+/* The words you spoke drifting across the page, as if still in transit. */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.marquee-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee 38s linear infinite;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track { animation: none; }
+}

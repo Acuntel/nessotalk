@@ -65,3 +65,20 @@ Work these in order; each task lists the exact behavior contract.
   the Windows analog of the Mac's AVAudioEngine -10868 lesson).
 - Clipboard paste with change-count guard, restore the user's clipboard.
 - A watchdog on every external process; the daemon never exits to self-heal.
+
+## 9. Privacy parity (Mac v8.5, REQUIRED before any customer install)
+- Config keys PRIVACY_MODE (default 1), HISTORY_DAYS (default 7), KEEP_LAST_CLIP (default 0).
+- Route every transcript log call through one helper. With PRIVACY_MODE on, write
+  only a word count and the first 6 hex of the SHA-256, never the spoken text.
+- With PRIVACY_MODE off, append AES-GCM sealed records to history.enc, keyed by a
+  secret held in Windows DPAPI (the analog of the Mac Keychain). Never store the
+  key beside the data, and never write plaintext to the log either way.
+- Restrict the log file ACL to the current user, and delete dictation artifacts on
+  the failure path too, not just on success.
+- One-time migration on first launch of the new build: strip existing plaintext
+  transcripts out of the log, delete retained audio, and log how many were removed.
+
+## 10. Per-platform activation (v8.6)
+- Send {"key", "machine", "platform": "windows"} to LICENSE_URL. One license
+  activates Mac, Windows, and iOS, but only ONCE per platform. A second, different
+  machine on an already-claimed platform is refused with "platform_already_activated".

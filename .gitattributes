@@ -1,0 +1,3 @@
+*.app/** binary -text
+apps/mac/PttDictate.app/** binary -text
+assets/downloads/*.zip binary -text

@@ -114,6 +114,36 @@ case "$1" in
     rm -rf "$TMP"
     echo "updated and restarted. Your settings and dictionary were kept."
     ;;
+  privacy)
+    cfgf="$DIR/config"
+    mode=$(grep -E '^PRIVACY_MODE=' "$cfgf" | tail -1 | cut -d= -f2); mode=${mode:-1}
+    days=$(grep -E '^HISTORY_DAYS=' "$cfgf" | tail -1 | cut -d= -f2); days=${days:-7}
+    clip=$(grep -E '^KEEP_LAST_CLIP=' "$cfgf" | tail -1 | cut -d= -f2); clip=${clip:-0}
+    echo "NessoTalk privacy"
+    if [ "$mode" = "1" ]; then
+      echo "  Mode:            private. What you say is never written to disk."
+    else
+      echo "  Mode:            history kept, encrypted with a key in your Keychain."
+    fi
+    echo "  Retention:       $days days"
+    if [ -f "$DIR/history.enc" ]; then
+      echo "  History entries: $(wc -l < "$DIR/history.enc" | tr -d ' ') (encrypted, unreadable without your Keychain)"
+    else
+      echo "  History entries: none on disk"
+    fi
+    if [ "$clip" = "1" ] && [ -f /tmp/ptt_last.wav ]; then
+      echo "  Audio on disk:   /tmp/ptt_last.wav is being kept. Run: ptt purge"
+    else
+      echo "  Audio on disk:   none"
+    fi
+    echo "  Log permissions: $(ls -l "$DIR/ptt.log" 2>/dev/null | cut -d" " -f1)"
+    echo "  Transcription:   always on this Mac. Your voice is never uploaded."
+    ;;
+  purge)
+    rm -f "$DIR/history.enc" /tmp/ptt_last.wav /tmp/ptt_rec_* /tmp/ptt_chunk* /tmp/ptt_caption* 2>/dev/null
+    if [ -f "$DIR/ptt.log" ]; then : > "$DIR/ptt.log"; chmod 600 "$DIR/ptt.log"; fi
+    echo "Everything was erased: history, retained audio, and the log."
+    ;;
   devices)  "$BIN" --devices ;;
   miccheck) "$BIN" --mic-check "${2:-}" ;;
   server)

@@ -61,3 +61,11 @@ POLISH_APPS=WindowsTerminal,Code,Cursor,Warp,Claude,Codex
 # Dictations shorter than this many words paste raw. A rewrite round trip on a
 # one-liner is pure latency with nothing worth rewriting.
 POLISH_MIN_WORDS=12
+
+# Privacy mode: your words are never written to disk. 0 keeps an encrypted
+# history instead, protected by a key held in Windows DPAPI for this user.
+PRIVACY_MODE=1
+# Anything retained is deleted after this many days. 0 keeps nothing.
+HISTORY_DAYS=7
+# Keep the audio of the last dictation on disk. Off by default.
+KEEP_LAST_CLIP=0

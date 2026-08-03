@@ -62,5 +62,13 @@ HOTKEY=54
 LICENSE_URL=https://nesso.tech/api/license
 # Where the AI rewrites run, using your license instead of your own API key.
 POLISH_PROXY_URL=https://nesso.tech/api/polish
+
+# Privacy mode: your words are never written to disk. 0 keeps an encrypted
+# history instead, unlocked by a key held in your Keychain.
+PRIVACY_MODE=1
+# Anything retained is deleted after this many days. 0 keeps nothing.
+HISTORY_DAYS=7
+# Keep the audio of the last dictation on disk. Off by default.
+KEEP_LAST_CLIP=0
 POLISH_KEY=
 LICENSE_KEY=

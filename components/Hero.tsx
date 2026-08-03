@@ -26,27 +26,7 @@ export default function Hero() {
         className="pointer-events-none absolute left-1/2 top-16 h-80 w-[46rem] -translate-x-1/2 rounded-full bg-rose/25 blur-[130px]"
       />
 
-      {/* Curved speech line, mirrored on both sides of the headline. */}
-      <svg
-        aria-hidden
-        viewBox="0 0 1200 420"
-        className="pointer-events-none absolute inset-x-0 top-24 mx-auto hidden h-[420px] w-full max-w-6xl lg:block"
-      >
-        <defs>
-          <path id="arcL" d="M 40 380 Q 150 120 420 90" fill="none" />
-          <path id="arcR" d="M 780 90 Q 1050 120 1160 380" fill="none" />
-        </defs>
-        <text className="fill-ink/25 font-body text-[15px]">
-          <textPath href="#arcL" startOffset="0%">
-            {CURVE_TEXT}
-          </textPath>
-        </text>
-        <text className="fill-ink/25 font-body text-[15px]">
-          <textPath href="#arcR" startOffset="0%">
-            {CURVE_TEXT}
-          </textPath>
-        </text>
-      </svg>
+      {/* The spoken line travelling across the page under the demo. */}
 
       <div className="relative mx-auto max-w-4xl text-center">
         <motion.div
@@ -69,7 +49,7 @@ export default function Hero() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.1 }}
-          className="mt-9 font-display text-5xl leading-[1.03] tracking-tight text-ink sm:text-7xl"
+          className="mt-7 font-display text-4xl leading-[1.05] tracking-tight text-ink sm:text-5xl"
         >
           Say it once and it is<br className="hidden sm:block" />{" "}
           <span className="italic text-rosedeep">already written</span>
@@ -79,12 +59,10 @@ export default function Hero() {
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.2 }}
-          className="mx-auto mt-7 max-w-2xl text-lg leading-8 text-muted"
+          className="mx-auto mt-5 max-w-xl text-lg leading-8 text-muted"
         >
-          You tap one key and start talking, and a few seconds later your words
-          are sitting in whatever you were writing, punctuated and cleaned up.
-          It works in every program on your computer, and the listening happens
-          on your own machine rather than on somebody else's server.
+          Tap one key, say it out loud, and the finished writing appears where
+          your cursor already was, in any program on your computer.
         </motion.p>
 
         <motion.div
@@ -108,10 +86,19 @@ export default function Hero() {
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, delay: 0.4 }}
-        className="relative mx-auto mt-16 max-w-2xl"
+        transition={{ duration: 0.8, delay: 0.35 }}
+        className="relative mx-auto mt-10 max-w-2xl"
       >
         <WaveformPill />
+        <div className="pointer-events-none mt-8 overflow-hidden">
+          <div className="marquee-track text-lg text-muted">
+            {[0, 1].map((copy) => (
+              <span key={copy} className="pr-10">
+                {CURVE_TEXT} &nbsp;·&nbsp; {CURVE_TEXT} &nbsp;·&nbsp;
+              </span>
+            ))}
+          </div>
+        </div>
         <motion.span
           key={beat}
           initial={{ opacity: 0, scale: 0.9, y: 6 }}
