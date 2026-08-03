@@ -14,11 +14,10 @@ export default function Pricing() {
   return (
     <section id="pricing" className="mx-auto max-w-6xl px-5 py-24">
       <h2 className="text-center font-display text-4xl text-ink sm:text-5xl">
-        A third of the price. On purpose.
+        It costs a third of what the other tools charge, and that is deliberate
       </h2>
       <p className="mx-auto mt-4 max-w-2xl text-center text-muted">
-        The big-name dictation tool runs $12 to $15 a month, forever. NessoTalk
-        does the same job on your own hardware, so we can charge a lot less.
+        The well-known dictation apps charge between twelve and fifteen dollars every month for as long as you use them. NessoTalk does the same job using the computer you already own, which costs us far less to run, so we charge you far less.
       </p>
 
       <div className="mx-auto mt-14 grid max-w-4xl gap-6 sm:grid-cols-2">
@@ -28,9 +27,9 @@ export default function Pricing() {
             $15<span className="text-lg">/mo</span>
           </div>
           <ul className="mt-6 space-y-3 text-sm text-muted">
-            <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-muted/60" />Audio processed in their cloud</li>
-            <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-muted/60" />$180 a year, every year</li>
-            <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-muted/60" />Great dictation, to be fair</li>
+            <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-muted" />Audio processed in their cloud</li>
+            <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-muted" />$180 a year, every year</li>
+            <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-muted" />It is genuinely good dictation, to be fair to them</li>
           </ul>
         </div>
 
@@ -43,7 +42,7 @@ export default function Pricing() {
             $4.99<span className="text-lg text-muted">/mo</span>
           </div>
           <div className="mt-1 text-sm text-muted">or $39/year (35% off)</div>
-          <ul className="mt-6 space-y-3 text-sm text-ink/90">
+          <ul className="mt-6 space-y-3 text-sm text-ink">
             {OURS.map((f) => (
               <li key={f} className="flex gap-2">
                 <Check className="mt-0.5 h-4 w-4 shrink-0 text-rose" />
@@ -92,7 +91,7 @@ export function FAQ() {
     <section id="faq" className="border-t border-line bg-card/40 py-24">
       <div className="mx-auto max-w-3xl px-5">
         <h2 className="text-center font-display text-4xl text-ink">
-          Questions, answered
+          The questions people ask before they sign up
         </h2>
         <div className="mt-10 space-y-4">
           {QA.map(([q, a]) => (

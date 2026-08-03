@@ -79,7 +79,7 @@ export default function Walkthrough({ paid }: { paid: boolean }) {
             <span className="text-xs text-muted">{s.time}</span>
           </div>
           <p className="mt-2 text-sm leading-6 text-muted">{s.body}</p>
-          {s.hint && <p className="mt-2 text-xs leading-5 text-muted/80">{s.hint}</p>}
+          {s.hint && <p className="mt-2 text-xs leading-5 text-muted">{s.hint}</p>}
 
           {s.action === "download" && (
             <div className="mt-5 grid grid-cols-2 gap-3">

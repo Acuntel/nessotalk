@@ -62,7 +62,7 @@ export default function Dashboard({
           ))}
         </span>
         <h1 className="mt-6 font-display text-4xl text-ink sm:text-5xl">
-          Ready when you are.
+          Everything is ready for you
         </h1>
         <p className="mx-auto mt-4 max-w-md text-muted">
           Fourteen days free, then $4.99 a month. Cancel in one click before day

@@ -8,9 +8,11 @@ const config: Config = {
         // Warm Nesso palette, drawn from the app icon (#D0A098 clay rose).
         paper: "#FBF6F3",
         card: "#FFFFFF",
-        line: "rgba(58,38,32,0.10)",
-        muted: "#8A736C",
-        ink: "#2B211D",
+        line: "rgba(58,38,32,0.14)",
+        // Body copy has to stay readable on paper, so this sits near 7:1
+        // contrast rather than the usual washed-out marketing gray.
+        muted: "#5E4A44",
+        ink: "#251C19",
         rose: "#D0A098",
         rosedeep: "#B47D72",
       },

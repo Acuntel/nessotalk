@@ -34,24 +34,24 @@ export function HowItWorks() {
   const steps = [
     {
       icon: Mic,
-      title: "Tap a key, talk",
-      body: "One tap on Right Command starts listening in any app. A live transcript rolls on screen while you speak.",
+      title: "You tap one key and start talking",
+      body: "A single tap starts it listening no matter which program you are in, and you can watch the words appear on screen while you are still speaking.",
     },
     {
       icon: Wand2,
-      title: "Pick how it lands",
-      body: "Exact words, a structured AI prompt, or clean professional prose for texts and email. One click on the pill, or let it choose by app.",
+      title: "You choose how the writing should come out",
+      body: "You can have your exact words, or a tidied professional version for an email or a text message, or a fully organized prompt for an AI tool. You pick it right on the bar, or you let it decide based on the program you are writing in.",
     },
     {
       icon: Zap,
-      title: "It pastes. You move on.",
-      body: "Tap again and polished text lands right where your cursor is, usually in about two seconds.",
+      title: "It types the words for you and gets out of the way",
+      body: "You tap the key one more time and the finished text appears exactly where your cursor was, normally in about two seconds.",
     },
   ];
   return (
     <section id="how" className="mx-auto max-w-6xl px-5 py-24">
       <h2 className="text-center font-display text-4xl text-ink sm:text-5xl">
-        Typing was the bottleneck
+        Typing has been the slowest part of your day for years
       </h2>
       <p className="mx-auto mt-4 max-w-2xl text-center text-muted">
         You think at 150 words a minute and type at 45. NessoTalk closes the gap
@@ -127,10 +127,10 @@ export function FinalCTA() {
   return (
     <section className="mx-auto max-w-4xl px-5 py-28 text-center">
       <h2 className="font-display text-4xl text-ink sm:text-5xl">
-        Your keyboard had a good run.
+        Your keyboard has done enough work for one career
       </h2>
       <p className="mx-auto mt-4 max-w-xl text-muted">
-        14 days free. No card. You'll be dictating within a minute of signing up.
+        You get fourteen days free to try it properly, and most people are talking to their computer within a minute of finishing setup.
       </p>
       <Link
         href="/start"
@@ -146,7 +146,7 @@ export function Footer() {
   return (
     <footer className="border-t border-line py-10">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-5 text-sm text-muted sm:flex-row">
-        <span>NessoTalk. Made for people who talk faster than they type.</span>
+        <span>NessoTalk is built for people who think and talk faster than they can type.</span>
         <div className="flex gap-6">
           <a href="/#pricing" className="hover:text-ink">Pricing</a>
           <a href="/#faq" className="hover:text-ink">FAQ</a>

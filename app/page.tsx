@@ -4,6 +4,7 @@ import WaveformPill from "@/components/WaveformPill";
 import Pricing, { FAQ } from "@/components/Pricing";
 import { Transform } from "@/components/Transform";
 import { Problem } from "@/components/Problem";
+import { ScrollTour } from "@/components/ScrollTour";
 import {
   ProofBar,
   HowItWorks,
@@ -28,17 +29,18 @@ export default function Home() {
           className="fadeup mx-auto mt-6 max-w-3xl font-display text-5xl leading-[1.05] text-ink sm:text-7xl"
           style={{ animationDelay: "80ms" }}
         >
-          Stop typing.
-          <br />
-          Start talking.
+          Your computer should write down whatever you say
         </h1>
         <p
           className="fadeup mx-auto mt-6 max-w-xl text-lg text-muted"
           style={{ animationDelay: "160ms" }}
         >
-          Tap a key. Talk. Clean text lands wherever your cursor is, in every
-          app you use. Runs on your machine. A third of the price of the
-          big-name tools.
+          You tap one key and start talking, and a few seconds later your words
+          are sitting in whatever you were writing, already cleaned up and
+          punctuated. It works in every program on your computer, it does the
+          listening on your own machine instead of sending your voice to a
+          company, and it costs about a third of what the well-known tools
+          charge.
         </p>
         <div
           className="fadeup mt-8 flex items-center justify-center gap-4"
@@ -66,6 +68,7 @@ export default function Home() {
       <ProofBar />
       <Problem />
       <Transform />
+      <ScrollTour />
       <HowItWorks />
       <Pricing />
       <FAQ />

@@ -14,16 +14,16 @@ export function Problem() {
         <div className="mt-14 grid gap-6 sm:grid-cols-3">
           {[
             {
-              t: "You already know what to say",
-              b: "The sentence is done in your head before your hands are a third of the way through it. That gap is where the day goes.",
+              t: "You have already finished the thought",
+              b: "The whole sentence is finished in your head before your hands are even a third of the way through typing it, and that gap between thinking and typing is where an enormous amount of your day quietly disappears.",
             },
             {
-              t: "So you write less than you should",
-              b: "The follow-up gets shorter. The note never gets written. The prompt is three words instead of the paragraph that would have gotten a better answer.",
+              t: "So you end up writing less than you meant to",
+              b: "The follow-up email gets shorter than it should be, the note from the meeting never actually gets written down, and the prompt you give your AI tool is three words when a full paragraph would have gotten you a much better answer.",
             },
             {
-              t: "Dictation was worse than typing",
-              b: "Built-in dictation gives you a wall of ums and no punctuation, so you spend longer cleaning it up than writing it yourself.",
+              t: "The dictation you have tried before made things worse",
+              b: "The dictation built into your computer hands you a wall of text with every um still in it and no punctuation anywhere, so you spend longer fixing it than you would have spent just typing the thing yourself.",
             },
           ].map((c) => (
             <div key={c.t} className="rounded-2xl border border-line bg-paper p-7">
@@ -45,11 +45,10 @@ export function Problem() {
             <span className="font-semibold">10 minutes</span>.
           </p>
           <p className="mt-4 font-display text-3xl text-ink">
-            Roughly half an hour back, every day.
+            That is roughly half an hour handed back to you every single day
           </p>
           <p className="mt-3 text-sm text-muted">
-            That's about 2.8 hours a week. NessoTalk costs less per month than
-            one of those hours is worth to almost anyone.
+            That works out to about two and a half hours a week, and NessoTalk costs less for an entire month than a single one of those hours is worth to almost anybody.
           </p>
         </div>
       </div>

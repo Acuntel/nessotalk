@@ -10,11 +10,10 @@ export function Transform() {
   return (
     <section className="mx-auto max-w-6xl px-5 py-24">
       <h2 className="text-center font-display text-4xl text-ink sm:text-5xl">
-        You ramble. It writes.
+        It cleans up the way people actually talk
       </h2>
       <p className="mx-auto mt-4 max-w-xl text-center text-muted">
-        Say it however it comes out. NessoTalk handles the ums, the false
-        starts, and the "no wait" corrections.
+        You do not have to speak in tidy sentences. Say it however it comes out, including the ums and the false starts and the moment where you change your mind halfway through, and NessoTalk sorts all of it out before the text reaches the page.
       </p>
       <div className="mt-12 grid items-center gap-6 lg:grid-cols-[1fr_auto_1fr]">
         <div className="rounded-2xl border border-line bg-card/60 p-6">
@@ -50,7 +49,7 @@ export function Transform() {
           </div>
         </div>
         <p className="mt-4 text-center text-xs text-muted">
-          You already talk this fast. Now your writing keeps up.
+          You already speak at roughly this speed every day, so this is simply your writing catching up to your talking.
         </p>
       </div>
     </section>
