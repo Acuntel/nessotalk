@@ -53,3 +53,7 @@ DEFAULT_MODE=summarize
 # dashboard. Empty = dev build, enforcement off.
 POLISH_KEY=
 LICENSE_KEY=
+
+# Standing instruction for how NessoTalk should always write, e.g.
+# "warm and direct, never stiff" or "formal, full sentences".
+STYLE=

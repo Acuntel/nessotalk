@@ -109,6 +109,9 @@ struct Config {
     // nesso.tech under our API key instead of needing the customer's own.
     // A cracked copy can't reach it without an active license.
     var polishProxyUrl = "https://nesso.tech/api/polish"
+    // Standing instruction for how the writing should always sound, e.g.
+    // "warm and direct" or "formal, never casual". Applied to every rewrite.
+    var style = ""
 
     static func load() -> Config {
         var c = Config()
@@ -194,6 +197,7 @@ struct Config {
             case "LICENSE_KEY":        c.licenseKey = val
             case "LICENSE_URL":        if !val.isEmpty { c.licenseUrl = val }
             case "POLISH_PROXY_URL":   if !val.isEmpty { c.polishProxyUrl = val }
+            case "STYLE":              c.style = val
             default: break
             }
         }
@@ -1592,8 +1596,54 @@ func frontContext() -> String {
 
 // One context line appended to a polish instruction (empty context = no-op).
 func contextSuffix(_ c: String) -> String {
-    c.isEmpty ? "" : "\nContext: the user is dictating into \(c). Write what fits that destination; never mention this context."
+    var s = ""
+    if !c.isEmpty {
+        s += "\nContext: the user is dictating into \(c). Write what fits that destination; never mention this context."
+    }
+    if !cfg.style.isEmpty {
+        s += "\nHouse style, always apply: \(cfg.style). Keep this voice in every sentence without mentioning it."
+    }
+    return s
 }
+
+// Speculative parallel polish: both rewrites start the moment a transcript
+// exists, so whichever chip the user picks is already in flight instead of
+// starting from zero on the click. Costs one extra call per dictation and buys
+// back the whole wait on every one of them.
+final class PolishRace {
+    private let lock = DispatchQueue(label: "ptt.race.lock")
+    private var groups: [String: DispatchGroup] = [:]
+    private var results: [String: String?] = [:]
+
+    func start(_ text: String, context: String) {
+        lock.sync { groups.removeAll(); results.removeAll() }
+        for mode in ["summarize", "professional"] {
+            let g = DispatchGroup()
+            lock.sync { self.groups[mode] = g }
+            g.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                let r = (mode == "summarize")
+                    ? polishForAI(text, context: context)
+                    : polishForText(text, context: context)
+                self.lock.sync { self.results[mode] = r }
+                g.leave()
+            }
+        }
+        log("⚡ pre-running both rewrites while you decide")
+    }
+
+    // Outer nil means it never started, so the caller runs it inline. Inner nil
+    // means it ran and failed, so the caller pastes the raw transcript.
+    func take(_ mode: String, timeout: Double) -> String?? {
+        var g: DispatchGroup?
+        lock.sync { g = groups[mode] }
+        guard let g = g, g.wait(timeout: .now() + timeout) == .success else { return nil }
+        var r: String?? = nil
+        lock.sync { r = results[mode] }
+        return r
+    }
+}
+let polishRace = PolishRace()
 
 // Returns the polished text, or nil when the caller should paste the raw
 // transcript instead (no backend, timeout, or an untrustworthy rewrite).
@@ -2492,7 +2542,9 @@ final class Dictation: NSObject {
         let summarize: (String) -> Void = { text in
             DispatchQueue.global(qos: .userInitiated).async {
                 let t0 = Date()
-                if let polished = polishForAI(text, context: ctx) {
+                let budget = max(30.0, Double(text.split(separator: " ").count) / 4.0)
+                if let polished = polishRace.take("summarize", timeout: budget)
+                    ?? polishForAI(text, context: ctx) {
                     log("· raw: \(text)")
                     finish(polished, " ⚡\(String(format: "%.1f", -t0.timeIntervalSinceNow))s polish")
                 } else {
@@ -2505,7 +2557,9 @@ final class Dictation: NSObject {
         let professional: (String) -> Void = { text in
             DispatchQueue.global(qos: .userInitiated).async {
                 let t0 = Date()
-                if let polished = polishForText(text, context: ctx) {
+                let budget = max(25.0, Double(text.split(separator: " ").count) / 5.0)
+                if let polished = polishRace.take("professional", timeout: budget)
+                    ?? polishForText(text, context: ctx) {
                     log("· raw: \(text)")
                     finish(polished, " ⚡\(String(format: "%.1f", -t0.timeIntervalSinceNow))s pro")
                 } else {
@@ -2545,6 +2599,10 @@ final class Dictation: NSObject {
                 return
             }
             if text.isEmpty { finish(text, ""); return }
+            // Fire both rewrites now, before we know which one is wanted.
+            if text.split(separator: " ").count >= cfg.polishMinWords {
+                polishRace.start(text, context: ctx)
+            }
             switch hudMode {
             case .raw:          finish(text, ""); return
             case .summarize:    summarize(text); return
