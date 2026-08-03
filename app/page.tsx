@@ -3,6 +3,7 @@ import Nav from "@/components/Nav";
 import WaveformPill from "@/components/WaveformPill";
 import Pricing, { FAQ } from "@/components/Pricing";
 import { Transform } from "@/components/Transform";
+import { Problem } from "@/components/Problem";
 import {
   ProofBar,
   HowItWorks,
@@ -63,6 +64,7 @@ export default function Home() {
       </section>
 
       <ProofBar />
+      <Problem />
       <Transform />
       <HowItWorks />
       <Pricing />

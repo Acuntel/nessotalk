@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Copy, Check, LogOut } from "lucide-react";
+import { Copy, Check, LogOut, Lock } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import Walkthrough from "@/components/Walkthrough";
 
 const STRIPE_MONTHLY = "https://buy.stripe.com/00wfZh6AA6Ru6kfcxlgMw00";
 
@@ -22,18 +23,13 @@ export default function Dashboard({
   licenseKey: string;
 }) {
   const router = useRouter();
+  const paid = plan !== "trial";
   const [entered, setEntered] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [note, setNote] = useState("");
 
   useEffect(() => {
     if (localStorage.getItem("nt_entered") === "1") setEntered(true);
   }, []);
-
-  function start() {
-    localStorage.setItem("nt_entered", "1");
-    setEntered(true);
-  }
 
   async function signOut() {
     await supabaseBrowser().auth.signOut();
@@ -56,7 +52,8 @@ export default function Dashboard({
       encodeURIComponent(uid);
   }
 
-  if (!entered) {
+  // Click 3 of the funnel: one button, straight to checkout.
+  if (!entered && !paid) {
     return (
       <main className="grain flex min-h-screen flex-col items-center justify-center px-5 text-center">
         <span className="flex h-10 items-end gap-[3px]">
@@ -67,14 +64,28 @@ export default function Dashboard({
         <h1 className="mt-6 font-display text-4xl text-ink sm:text-5xl">
           Ready when you are.
         </h1>
+        <p className="mx-auto mt-4 max-w-md text-muted">
+          Fourteen days free, then $4.99 a month. Cancel in one click before day
+          14 and you are never charged.
+        </p>
         <button
-          onClick={start}
+          onClick={() => {
+            localStorage.setItem("nt_entered", "1");
+            setEntered(true);
+            subscribe();
+          }}
           className="mt-8 rounded-xl bg-rose px-12 py-5 text-xl font-semibold text-white shadow-glow transition hover:bg-rosedeep"
         >
           Start your 14-day trial
         </button>
-        <p className="mt-3 text-xs text-muted">No card. It's already yours for two weeks.</p>
-        <button onClick={signOut} className="mt-10 flex items-center gap-1.5 text-sm text-muted hover:text-ink">
+        <p className="mt-3 text-xs text-muted">
+          Card required so your access never interrupts mid-sentence. No charge
+          today.
+        </p>
+        <button
+          onClick={signOut}
+          className="mt-10 flex items-center gap-1.5 text-sm text-muted hover:text-ink"
+        >
           <LogOut className="h-4 w-4" /> Sign out
         </button>
       </main>
@@ -85,66 +96,65 @@ export default function Dashboard({
     <main className="grain min-h-screen px-5 py-10">
       <div className="mx-auto max-w-2xl">
         <div className="flex items-center justify-between">
-          <Link href="/" className="font-display text-xl font-semibold">NessoTalk</Link>
+          <Link href="/" className="font-display text-xl font-semibold">
+            NessoTalk
+          </Link>
           <div className="flex items-center gap-4">
-            <span className="rounded-full bg-rose/20 px-3 py-1 text-xs font-semibold text-rose ring-1 ring-rose/40">
-              {plan === "trial" ? `Trial · ${daysLeft} days left` : plan}
+            <span className="rounded-full bg-rose/20 px-3 py-1 text-xs font-semibold text-rosedeep ring-1 ring-rose/40">
+              {paid ? `${plan} · active` : `Trial · ${daysLeft} days left`}
             </span>
-            <button onClick={signOut} className="text-sm text-muted hover:text-ink">Sign out</button>
+            <button onClick={signOut} className="text-sm text-muted hover:text-ink">
+              Sign out
+            </button>
           </div>
         </div>
 
-        <div className="mt-10 rounded-3xl border border-line bg-card p-8">
-          <h1 className="font-display text-2xl text-ink">1. Download it</h1>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <a
-              href="/api/download?platform=mac"
-              className="rounded-xl bg-ink py-3.5 text-center text-sm font-semibold text-paper transition hover:bg-rosedeep"
+        {!paid && (
+          <div className="mt-8 rounded-3xl border border-rose/40 bg-card p-8">
+            <div className="flex items-center gap-2 text-rosedeep">
+              <Lock className="h-4 w-4" />
+              <span className="text-xs font-semibold uppercase tracking-wide">
+                One step left
+              </span>
+            </div>
+            <h1 className="mt-3 font-display text-2xl text-ink">
+              Start your trial to unlock the download
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              Fourteen days free, then $4.99 a month. Your copy is built for you
+              with your license inside it, which is why we set up billing first.
+              Cancel any time in one click.
+            </p>
+            <button
+              onClick={subscribe}
+              className="mt-5 w-full rounded-xl bg-rose py-3.5 font-semibold text-white transition hover:bg-rosedeep"
             >
-               Mac
-            </a>
-            <a
-              href="/api/download?platform=windows"
-              className="rounded-xl bg-ink py-3.5 text-center text-sm font-semibold text-paper transition hover:bg-rosedeep"
-            >
-              ⊞ Windows
-            </a>
+              Start 14 days free
+            </button>
           </div>
-          <p className="mt-3 text-xs leading-5 text-muted">
-            Your copy comes with your license already inside it. Unzip, then run
-            install.sh (Mac) or setup.ps1 (Windows). That's the whole setup, and
-            the installer walks you through the one-time microphone permission.
-          </p>
+        )}
+
+        <div className={`mt-6 ${paid ? "" : "pointer-events-none opacity-50"}`}>
+          <Walkthrough paid={paid} />
         </div>
 
         <div className="mt-6 rounded-3xl border border-line bg-card p-8">
-          <h1 className="font-display text-2xl text-ink">2. Your license key</h1>
-          <p className="mt-1 text-sm text-muted">
+          <h2 className="font-display text-xl text-ink">Your license key</h2>
+          <p className="mt-1 text-sm leading-6 text-muted">
             Already inside your download, so you only need this if you set up a
-            second computer. It stops working if your subscription lapses and
-            picks right back up when you're active again.
+            second computer. Good for 3 machines.
           </p>
           <button
             onClick={copyKey}
             className="mt-4 flex w-full items-center justify-between rounded-xl border border-line bg-paper px-4 py-3 font-mono text-sm text-ink hover:border-rose"
           >
             <span className="truncate">{licenseKey}</span>
-            {copied ? <Check className="h-4 w-4 shrink-0 text-rose" /> : <Copy className="h-4 w-4 shrink-0 text-muted" />}
+            {copied ? (
+              <Check className="h-4 w-4 shrink-0 text-rose" />
+            ) : (
+              <Copy className="h-4 w-4 shrink-0 text-muted" />
+            )}
           </button>
-        </div>
-
-        <div className="mt-6 rounded-3xl border border-rose/40 bg-card p-8">
-          <h1 className="font-display text-2xl text-ink">3. Keep it after the trial</h1>
-          <p className="mt-1 text-sm text-muted">
-            $4.99/mo, founding price locked forever. The other guys charge $15.
-          </p>
-          <button
-            onClick={subscribe}
-            className="mt-4 w-full rounded-xl bg-rose py-3.5 font-semibold text-white transition hover:bg-rosedeep"
-          >
-            Subscribe: $4.99/mo
-          </button>
-          {note && <p className="mt-3 text-xs text-muted">{note}</p>}
         </div>
       </div>
     </main>

@@ -32,17 +32,16 @@ export async function GET(req: Request) {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("license_key, plan, trial_ends_at, revoked")
+    .select("license_key, plan, revoked")
     .eq("id", user.id)
     .single();
   if (!profile || profile.revoked) {
     return NextResponse.json({ error: "inactive" }, { status: 402 });
   }
-  const trialLive = profile.trial_ends_at
-    ? new Date(profile.trial_ends_at).getTime() > Date.now()
-    : false;
-  if (profile.plan === "trial" && !trialLive) {
-    return NextResponse.json({ error: "expired" }, { status: 402 });
+  // The build sits behind checkout: the 14 free days start there, so anyone
+  // holding a copy has a card on file and a plan we can switch off.
+  if (profile.plan === "trial") {
+    return NextResponse.json({ error: "subscribe_required" }, { status: 402 });
   }
 
   const zip = new AdmZip(path.join(process.cwd(), "assets", "downloads", file));
