@@ -49,6 +49,10 @@ PRO_APPS=mobilesms,messages,mail,outlook,whatsapp,telegram,slack,discord
 # Chips on the pill override this per-dictation. Under POLISH_MIN_WORDS words
 # always pastes as-is; PRO_APPS still auto-clean texting/email apps.
 DEFAULT_MODE=summarize
+# Remembered mode (v8.8): whichever mode you last picked on the recording pill.
+# Written automatically when you click one; it stays active across restarts.
+# summarize | professional | normal | agent | expand | ask
+SELECTED_MODE=ask
 # Lease (v8.2): customer builds set the license key from the nesso.tech
 # dashboard. Empty = dev build, enforcement off.
 

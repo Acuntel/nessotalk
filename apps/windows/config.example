@@ -50,6 +50,10 @@ POLISH_PROXY_URL=https://nesso.tech/api/polish
 # What a dictation delivers when the foreground app matches neither POLISH_APPS nor
 # PRO_APPS: summarize | professional | normal.
 DEFAULT_MODE=summarize
+# Remembered mode (v8.8): whichever mode you last picked from the tray Mode menu.
+# Written automatically when you pick one; it stays active across restarts and beats
+# the app-based routing above. summarize | professional | normal | agent | expand | ask
+SELECTED_MODE=ask
 # Standing instruction for how the writing should always sound, for example "warm and
 # direct" or "formal, never casual". Applied to every rewrite. Blank disables this.
 STYLE=

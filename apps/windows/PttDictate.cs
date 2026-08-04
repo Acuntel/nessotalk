@@ -158,6 +158,7 @@ internal sealed class AppConfig
     {
         _values = values;
         _paths = paths;
+        SelectedMode = NormalizeSelectedMode(Get("SELECTED_MODE", "ask"));
     }
 
     public string Hotkey => Get("HOTKEY", "RightCtrl");
@@ -204,6 +205,12 @@ internal sealed class AppConfig
     // AI polish via the nesso.tech server proxy (see Polish.cs).
     public string PolishProxyUrl => Get("POLISH_PROXY_URL", "https://nesso.tech/api/polish");
     public string DefaultMode => NormalizeMode(Get("DEFAULT_MODE", "summarize"));
+
+    // v8.8 remembered mode (shared schema with the Mac build's SELECTED_MODE): the mode
+    // the user last picked from the tray Mode menu. "ask" means nothing is remembered and
+    // the app-based routing in PolishClient.SelectMode decides. Unlike every other value
+    // this one is written back at runtime, which is what makes the pick survive restarts.
+    public string SelectedMode { get; private set; }
     public string Style => Get("STYLE", "");
     public string ProApps => Get("PRO_APPS", "OUTLOOK,Teams,slack,discord,WhatsApp");
     public string PolishApps => Get("POLISH_APPS", "WindowsTerminal,Code,Cursor,Warp,Claude,Codex");
@@ -253,6 +260,45 @@ internal sealed class AppConfig
     {
         var normalized = value.Trim().ToLowerInvariant();
         return normalized is "summarize" or "professional" or "normal" ? normalized : "summarize";
+    }
+
+    // SELECTED_MODE accepts the Mac build's full vocabulary ("raw" is legacy for "normal";
+    // agent/expand are the proxy-only rewrite modes). Anything unrecognized means "ask".
+    private static string NormalizeSelectedMode(string value)
+    {
+        var normalized = value.Trim().ToLowerInvariant();
+        if (normalized == "raw") return "normal";
+        return normalized is "summarize" or "professional" or "normal" or "agent" or "expand" or "ask"
+            ? normalized
+            : "ask";
+    }
+
+    /// <summary>
+    /// v8.8: persist the tray-picked mode so it stays active after the app is fully closed
+    /// and reopened. Rewrites (or appends) the SELECTED_MODE line in the config file and
+    /// updates the running instance — mirrors the Mac build's writeConfigValue.
+    /// </summary>
+    public void SetSelectedMode(string mode)
+    {
+        SelectedMode = NormalizeSelectedMode(mode);
+        _values["SELECTED_MODE"] = SelectedMode;
+        try
+        {
+            var lines = File.Exists(_paths.Config) ? File.ReadAllLines(_paths.Config).ToList() : new List<string>();
+            var replaced = false;
+            for (var i = 0; i < lines.Count; i++)
+            {
+                if (!lines[i].TrimStart().StartsWith("SELECTED_MODE=", StringComparison.OrdinalIgnoreCase)) continue;
+                lines[i] = $"SELECTED_MODE={SelectedMode}";
+                replaced = true;
+            }
+            if (!replaced) lines.Add($"SELECTED_MODE={SelectedMode}");
+            File.WriteAllLines(_paths.Config, lines);
+        }
+        catch (Exception ex)
+        {
+            Log.Info($"Could not persist SELECTED_MODE to the config file: {ex.Message}");
+        }
     }
 }
 
@@ -306,6 +352,27 @@ internal sealed class DictationContext : ApplicationContext
         menu.Items.Add(_statusItem);
         menu.Items.Add(_toggleItem);
         menu.Items.Add(new ToolStripSeparator());
+        // v8.8 remembered mode: picking one here writes SELECTED_MODE to the config, so
+        // the app reopens already running in whatever mode was active last time. Matches
+        // the Mac build's HUD Mode menu (which persists the same key the same way).
+        var modeMenu = new ToolStripMenuItem("Mode");
+        foreach (var (label, value) in new[]
+                 {
+                     ("Professional", "professional"), ("Summarize", "summarize"), ("Normal", "normal"),
+                     ("AI Agent", "agent"), ("AI Extend", "expand"), ("Automatic (by app)", "ask")
+                 })
+        {
+            var item = new ToolStripMenuItem(label) { Checked = config.SelectedMode == value, Tag = value };
+            item.Click += (_, _) =>
+            {
+                _config.SetSelectedMode((string)item.Tag!);
+                foreach (var sibling in modeMenu.DropDownItems.OfType<ToolStripMenuItem>())
+                    sibling.Checked = ReferenceEquals(sibling, item);
+                Log.Info($"Mode set to {_config.SelectedMode} (remembered across restarts)");
+            };
+            modeMenu.DropDownItems.Add(item);
+        }
+        menu.Items.Add(modeMenu);
         menu.Items.Add("Settings...", null, (_, _) => OpenConfig());
         menu.Items.Add("Recordings folder", null, (_, _) => OpenPath(_paths.Recordings));
         menu.Items.Add("View log", null, (_, _) => OpenLog());

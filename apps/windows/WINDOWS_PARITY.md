@@ -82,3 +82,19 @@ Work these in order; each task lists the exact behavior contract.
 - Send {"key", "machine", "platform": "windows"} to LICENSE_URL. One license
   activates Mac, Windows, and iOS, but only ONCE per platform. A second, different
   machine on an already-claimed platform is refused with "platform_already_activated".
+
+## 11. v8.8: remembered mode, Finish button, predictive preload
+- DONE (this build): SELECTED_MODE — the tray Mode menu (Professional / Summarize /
+  Normal / AI Agent / AI Extend / Automatic) writes SELECTED_MODE to the config the
+  moment it is picked, so the pick survives a full app restart. An explicit pick
+  beats PRO_APPS/POLISH_APPS routing, exactly like a HUD mode pick on the Mac.
+  agent/expand ride the same proxy call; they skip the length trust gate (briefs
+  restructure rather than preserve) but keep the refusal gate.
+- NOT PORTED YET (Mac-only until Windows grows a rolling-transcription engine):
+  the recording-pill Finish button (push-to-live: stop and paste instantly with
+  the pre-run rewrite if ready, else the raw words) and predictive preload (the
+  speculative tail decode fires the active mode's rewrite DURING the pre-stop
+  pause, keyed on the exact transcript so resumed speech invalidates it). The
+  Windows pipeline decodes whole-file after stop, so there is no mid-recording
+  transcript to pre-polish yet. Port order: chunked decode -> spec tail ->
+  text-keyed polish race -> overlay Finish button.

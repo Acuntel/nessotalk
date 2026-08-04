@@ -40,7 +40,12 @@ internal static class PolishClient
         var mode = SelectMode(config);
         if (mode == "normal") return text;
 
-        var timeoutSeconds = mode == "summarize" ? Math.Max(30, words / 4.0) : Math.Max(25, words / 5.0);
+        var timeoutSeconds = mode switch
+        {
+            "summarize" => Math.Max(30, words / 4.0),
+            "agent" or "expand" => Math.Max(45, words / 4.0),   // agent runs at high effort
+            _ => Math.Max(25, words / 5.0)
+        };
         var polished = CallProxy(text, mode, TimeSpan.FromSeconds(timeoutSeconds), config);
         if (polished is null)
         {
@@ -65,6 +70,9 @@ internal static class PolishClient
     // DEFAULT_MODE decides instead. Everywhere else, DEFAULT_MODE decides.
     private static string SelectMode(AppConfig config)
     {
+        // v8.8: an explicitly picked (and remembered) mode beats the app-based routing,
+        // exactly like a HUD mode pick on the Mac build.
+        if (config.SelectedMode != "ask") return config.SelectedMode;
         var foreground = ForegroundProcessName();
         var aiTarget = MatchesAppList(foreground, config.PolishApps);
         var proTarget = MatchesAppList(foreground, config.ProApps);
@@ -112,6 +120,10 @@ internal static class PolishClient
         {
             return false;
         }
+
+        // Agent/Extend briefs restructure rather than preserve, so a length ratio would
+        // reject legitimate output (the Mac build applies no length gate there either).
+        if (mode is "agent" or "expand") return true;
 
         return mode == "summarize"
             ? trimmed.Length >= input.Length * 3 / 5
