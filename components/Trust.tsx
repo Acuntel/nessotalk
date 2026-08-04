@@ -5,22 +5,22 @@ const POINTS = [
   {
     icon: ShieldCheck,
     title: "Nothing installs without showing you first",
-    body: "The installer explains every step before it takes it, and your Mac or PC asks your permission for the microphone in its own words, not ours. You watch the whole thing happen, and you can stop it at any point.",
+    body: "The installer explains every step before it takes it, and your computer asks for microphone permission in its own words. You can stop it at any point.",
   },
   {
     icon: MicOff,
     title: "Your voice never reaches our servers",
-    body: "The part that listens to you runs entirely on your own computer. We could not hand your recordings to anyone even if we were asked for them, because we never receive them in the first place. Only the AI rewriting step sends text, and only when you choose it.",
+    body: "Transcription runs entirely on your own computer, so we never receive your recordings in the first place. Only the AI rewriting step sends text, and only when you choose it.",
   },
   {
     icon: UserRound,
     title: "There is one person behind this, and you can email him",
-    body: "NessoTalk is built by Brady Schwartz. Support is not a ticket queue that answers in four days, it is a reply from the person who wrote the code. If something is broken, you will be talking to the one human who can actually fix it.",
+    body: "NessoTalk is built by Brady Schwartz, and support is a reply from the person who wrote the code, not a ticket queue.",
   },
   {
     icon: CreditCard,
     title: "Cancelling takes one click and no conversation",
-    body: "You are never charged during the fourteen day trial, and you can end your subscription from your own dashboard whenever you want. There is no phone call, no retention offer, and no form asking why you are leaving.",
+    body: "You are never charged during the fourteen day trial, and you can cancel from your own dashboard in one click with no retention flow.",
   },
 ];
 
@@ -33,9 +33,8 @@ export function Trust() {
             You are about to download software from someone you have never met
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-center text-lg leading-8 text-muted">
-            That should give you pause, and we would rather answer it directly
-            than hope you do not think about it. Here is exactly why this is
-            safe to install.
+            That should give you pause, so here is exactly why it is safe to
+            install.
           </p>
         </Reveal>
 

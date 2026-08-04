@@ -25,10 +25,8 @@ export function Transform() {
           <span className="italic text-rosedeep">actually</span> talk
         </h2>
         <p className="mx-auto mt-5 max-w-2xl text-center text-lg leading-8 text-muted">
-          You do not have to speak in tidy sentences. Say it however it comes
-          out, including the ums and the false starts and the moment where you
-          change your mind halfway through, and NessoTalk sorts all of it out
-          before the text reaches the page.
+          Say it however it comes out, ums and false starts included, and it is
+          sorted before the text reaches the page.
         </p>
       </Reveal>
 
@@ -62,8 +60,8 @@ export function Transform() {
             </div>
             <p className="mt-4 text-xl leading-9 text-ink">{CLEAN}</p>
             <p className="mt-6 text-sm leading-6 text-muted">
-              You never touched the keyboard, and the number you corrected
-              halfway through is the one that made it into the message.
+              The number you corrected halfway through is the one that made it
+              into the message.
             </p>
           </div>
         </Reveal>
@@ -83,8 +81,7 @@ export function Transform() {
           </div>
         </div>
         <p className="mt-5 text-center text-base text-muted">
-          You already speak at roughly this speed every day, so this is simply
-          your writing catching up to your talking.
+          This is your writing catching up to your talking.
         </p>
       </Reveal>
     </section>

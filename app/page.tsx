@@ -1,4 +1,3 @@
-import Link from "next/link";
 import Nav from "@/components/Nav";
 import Hero from "@/components/Hero";
 import Pricing, { FAQ } from "@/components/Pricing";
@@ -8,7 +7,8 @@ import { ScrollTour } from "@/components/ScrollTour";
 import { Trust } from "@/components/Trust";
 import {
   ProofBar,
-  HowItWorks,
+  AppsMarquee,
+  FeatureGrid,
   FinalCTA,
   Footer,
 } from "@/components/Sections";
@@ -23,8 +23,9 @@ export default function Home() {
       <ProofBar />
       <Problem />
       <Transform />
+      <AppsMarquee />
       <ScrollTour />
-      <HowItWorks />
+      <FeatureGrid />
       <Pricing />
       <Trust />
       <FAQ />

@@ -17,7 +17,9 @@ export default function Pricing() {
         It costs a third of what the other tools charge, and that is deliberate
       </h2>
       <p className="mx-auto mt-4 max-w-2xl text-center text-muted">
-        The well-known dictation apps charge between twelve and fifteen dollars every month for as long as you use them. NessoTalk does the same job using the computer you already own, which costs us far less to run, so we charge you far less.
+        The well-known apps charge about fifteen dollars a month forever.
+        NessoTalk does the same job on the computer you already own, so it
+        costs a third of that.
       </p>
 
       <div className="mx-auto mt-14 grid max-w-4xl gap-6 sm:grid-cols-2">

@@ -1,8 +1,6 @@
 import Link from "next/link";
 import {
   Lock,
-  Zap,
-  Wand2,
   MessageSquareText,
   BookOpenCheck,
   Globe2,
@@ -30,39 +28,69 @@ export function ProofBar() {
   );
 }
 
-export function HowItWorks() {
-  const steps = [
-    {
-      icon: Mic,
-      title: "You tap one key and start talking",
-      body: "A single tap starts it listening no matter which program you are in, and you can watch the words appear on screen while you are still speaking.",
-    },
-    {
-      icon: Wand2,
-      title: "You choose how the writing should come out",
-      body: "You can have your exact words, or a tidied professional version for an email or a text message, or a fully organized prompt for an AI tool. You pick it right on the bar, or you let it decide based on the program you are writing in.",
-    },
-    {
-      icon: Zap,
-      title: "It types the words for you and gets out of the way",
-      body: "You tap the key one more time and the finished text appears exactly where your cursor was, normally in about two seconds.",
-    },
-  ];
+const APPS_A = [
+  "Gmail",
+  "Slack",
+  "iMessage",
+  "Notion",
+  "Google Docs",
+  "Outlook",
+  "Word",
+  "Safari",
+  "Discord",
+  "WhatsApp",
+  "Teams",
+  "Figma",
+];
+
+const APPS_B = [
+  "ChatGPT",
+  "Claude",
+  "Cursor",
+  "VS Code",
+  "Terminal",
+  "Excel",
+  "Linear",
+  "Telegram",
+  "Pages",
+  "Chrome",
+  "LinkedIn",
+  "Notes",
+];
+
+export function AppsMarquee() {
   return (
-    <section id="how" className="mx-auto max-w-6xl px-5 py-24">
-      <h2 className="text-center font-display text-4xl text-ink sm:text-5xl">
-        Typing has been the slowest part of your day for years
+    <section className="border-y border-line bg-card/50 py-20">
+      <h2 className="px-5 text-center font-display text-4xl text-ink sm:text-5xl">
+        It types into every app you already use
       </h2>
-      <p className="mx-auto mt-4 max-w-2xl text-center text-muted">
-        You think at 150 words a minute and type at 45. NessoTalk closes the gap
-        in every app on your Mac or PC: email, Slack, docs, your AI tools, all of it.
+      <p className="mx-auto mt-4 max-w-xl px-5 text-center text-muted">
+        As far as your computer is concerned, NessoTalk is a very fast
+        keyboard, so it works anywhere your cursor does.
       </p>
-      <div className="mt-14 grid gap-8 sm:grid-cols-3">
-        {steps.map((s) => (
-          <div key={s.title} className="rounded-2xl border border-line bg-card/60 p-7">
-            <s.icon className="h-6 w-6 text-rose" />
-            <h3 className="mt-4 font-display text-xl text-ink">{s.title}</h3>
-            <p className="mt-2 text-sm leading-6 text-muted">{s.body}</p>
+      <div className="mt-12 space-y-4 overflow-hidden">
+        {[APPS_A, APPS_B].map((row, r) => (
+          <div
+            key={r}
+            className="marquee-track"
+            style={
+              r === 1
+                ? { animationDirection: "reverse", animationDuration: "46s" }
+                : { animationDuration: "42s" }
+            }
+          >
+            {[0, 1].map((copy) => (
+              <span key={copy} className="flex gap-3 pr-3">
+                {row.map((app) => (
+                  <span
+                    key={app}
+                    className="whitespace-nowrap rounded-full border border-line bg-paper px-5 py-2.5 text-sm font-semibold text-ink"
+                  >
+                    {app}
+                  </span>
+                ))}
+              </span>
+            ))}
           </div>
         ))}
       </div>
@@ -107,7 +135,7 @@ export function FeatureGrid() {
     <section className="border-y border-line bg-card/40 py-24">
       <div className="mx-auto max-w-6xl px-5">
         <h2 className="text-center font-display text-4xl text-ink">
-          Everything the expensive tools do. And a few things they don't.
+          Everything the expensive tools do, plus a few things they don't
         </h2>
         <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {feats.map((f) => (
@@ -130,7 +158,8 @@ export function FinalCTA() {
         Your keyboard has done enough work for one career
       </h2>
       <p className="mx-auto mt-4 max-w-xl text-muted">
-        You get fourteen days free to try it properly, and most people are talking to their computer within a minute of finishing setup.
+        You get fourteen days free, and most people are talking to their
+        computer within a minute of finishing setup.
       </p>
       <Link
         href="/start"
