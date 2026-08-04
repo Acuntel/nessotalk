@@ -5,13 +5,7 @@ import { Transform } from "@/components/Transform";
 import { Problem } from "@/components/Problem";
 import { ScrollTour } from "@/components/ScrollTour";
 import { Trust } from "@/components/Trust";
-import {
-  ProofBar,
-  AppsMarquee,
-  FeatureGrid,
-  FinalCTA,
-  Footer,
-} from "@/components/Sections";
+import { ProofBar, AppsMarquee, FinalCTA, Footer } from "@/components/Sections";
 
 export default function Home() {
   return (
@@ -21,11 +15,10 @@ export default function Home() {
       <Hero />
 
       <ProofBar />
-      <Problem />
+      <ScrollTour />
       <Transform />
       <AppsMarquee />
-      <ScrollTour />
-      <FeatureGrid />
+      <Problem />
       <Pricing />
       <Trust />
       <FAQ />

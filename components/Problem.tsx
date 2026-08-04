@@ -11,29 +11,7 @@ export function Problem() {
           already finished.
         </p>
 
-        <div className="mt-14 grid gap-6 sm:grid-cols-3">
-          {[
-            {
-              t: "The thought is already done",
-              b: "The sentence is finished in your head long before your hands finish typing it.",
-            },
-            {
-              t: "So you write less than you meant to",
-              b: "Follow-ups get shorter, notes never get written, and your AI prompts end up three words long.",
-            },
-            {
-              t: "Built-in dictation made it worse",
-              b: "It handed you a wall of text with every um still in it, so you spent longer cleaning up than typing.",
-            },
-          ].map((c) => (
-            <div key={c.t} className="rounded-2xl border border-line bg-paper p-7">
-              <h3 className="font-display text-xl text-ink">{c.t}</h3>
-              <p className="mt-2 text-sm leading-6 text-muted">{c.b}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="mx-auto mt-14 max-w-3xl rounded-3xl border border-rose/40 bg-paper p-8 shadow-glow">
+        <div className="mx-auto mt-12 max-w-3xl rounded-3xl border border-rose/40 bg-paper p-8 shadow-glow">
           <div className="text-center text-xs font-semibold uppercase tracking-wide text-rose">
             The math on a normal 2,000 word day
           </div>

@@ -30,11 +30,11 @@ export function Trust() {
       <div className="mx-auto max-w-5xl px-5">
         <Reveal>
           <h2 className="text-center font-display text-4xl leading-tight text-ink sm:text-5xl">
-            You are about to download software from someone you have never met
+            How we handle your voice, your data, and your money
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-center text-lg leading-8 text-muted">
-            That should give you pause, so here is exactly why it is safe to
-            install.
+            Everything sensitive stays on your computer, and everything billing
+            related stays in your control.
           </p>
         </Reveal>
 

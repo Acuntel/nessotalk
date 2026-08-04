@@ -1,12 +1,4 @@
 import Link from "next/link";
-import {
-  Lock,
-  MessageSquareText,
-  BookOpenCheck,
-  Globe2,
-  MousePointerClick,
-  Mic,
-} from "lucide-react";
 
 export function ProofBar() {
   return (
@@ -93,59 +85,6 @@ export function AppsMarquee() {
             ))}
           </div>
         ))}
-      </div>
-    </section>
-  );
-}
-
-export function FeatureGrid() {
-  const feats = [
-    {
-      icon: Lock,
-      title: "Private by architecture",
-      body: "Speech never leaves your Mac. The transcription engine runs locally, so your words are not someone else's training data.",
-    },
-    {
-      icon: MessageSquareText,
-      title: "Knows where you're typing",
-      body: "Dictating into Messages or Mail comes out polished and professional. Dictating into an AI tool comes out as a structured prompt.",
-    },
-    {
-      icon: MousePointerClick,
-      title: "Edit anything by voice",
-      body: "Highlight text anywhere, hold Option, tap the key, and say the change. The rewrite replaces the selection.",
-    },
-    {
-      icon: BookOpenCheck,
-      title: "Learns your words",
-      body: "Teach it names, products, and jargon once. It spells them right forever, plus voice snippets for things you say daily.",
-    },
-    {
-      icon: Globe2,
-      title: "100+ languages",
-      body: "Flip one setting and it auto-detects language, even when you switch mid-sentence.",
-    },
-    {
-      icon: Mic,
-      title: "Whisper mode",
-      body: "In a coffee shop or on a call, dictate at a whisper and it still hears every word.",
-    },
-  ];
-  return (
-    <section className="border-y border-line bg-card/40 py-24">
-      <div className="mx-auto max-w-6xl px-5">
-        <h2 className="text-center font-display text-4xl text-ink">
-          Everything the expensive tools do, plus a few things they don't
-        </h2>
-        <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {feats.map((f) => (
-            <div key={f.title} className="rounded-2xl border border-line bg-paper/60 p-6">
-              <f.icon className="h-5 w-5 text-rose" />
-              <h3 className="mt-3 font-semibold text-ink">{f.title}</h3>
-              <p className="mt-2 text-sm leading-6 text-muted">{f.body}</p>
-            </div>
-          ))}
-        </div>
       </div>
     </section>
   );
