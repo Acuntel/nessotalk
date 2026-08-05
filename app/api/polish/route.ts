@@ -186,32 +186,61 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "expired" }, { status: 402 });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: "proxy_unconfigured" }, { status: 503 });
-
-  const payload: Record<string, unknown> = {
-    model: cfg.model,
-    max_tokens: cfg.maxTokens,
-    messages: [{ role: "user", content: cfg.instruction + "\n\nTranscript:\n" + text }],
-  };
-  // Only Sonnet-tier models accept output_config.effort; Haiku 4.5 errors on it.
-  if (cfg.effort) payload.output_config = { effort: cfg.effort };
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) return NextResponse.json({ error: "upstream" }, { status: 502 });
-  const data = await res.json();
-  if (data?.stop_reason === "refusal") {
-    return NextResponse.json({ error: "refused" }, { status: 502 });
+  // Upstream priority: Anthropic when its key exists (per-mode Sonnet/Haiku
+  // tiering), else Groq's free tier (llama-3.3-70b for every mode). Either way
+  // the license gate above stays the product: access is granted and revoked
+  // here, regardless of which model answers.
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const groqKey = process.env.GROQ_API_KEY;
+  if (!anthropicKey && !groqKey) {
+    return NextResponse.json({ error: "proxy_unconfigured" }, { status: 503 });
   }
-  const out = data?.content?.find((b: { type?: string }) => b?.type === "text")?.text;
+
+  const prompt = cfg.instruction + "\n\nTranscript:\n" + text;
+  let out: unknown;
+
+  if (anthropicKey) {
+    const payload: Record<string, unknown> = {
+      model: cfg.model,
+      max_tokens: cfg.maxTokens,
+      messages: [{ role: "user", content: prompt }],
+    };
+    // Only Sonnet-tier models accept output_config.effort; Haiku 4.5 errors on it.
+    if (cfg.effort) payload.output_config = { effort: cfg.effort };
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) return NextResponse.json({ error: "upstream" }, { status: 502 });
+    const data = await res.json();
+    if (data?.stop_reason === "refusal") {
+      return NextResponse.json({ error: "refused" }, { status: 502 });
+    }
+    out = data?.content?.find((b: { type?: string }) => b?.type === "text")?.text;
+  } else {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${groqKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        max_completion_tokens: Math.min(cfg.maxTokens, 8192),
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (!res.ok) return NextResponse.json({ error: "upstream" }, { status: 502 });
+    const data = await res.json();
+    out = data?.choices?.[0]?.message?.content;
+  }
+
   if (typeof out !== "string" || !out.trim()) {
     return NextResponse.json({ error: "empty_upstream" }, { status: 502 });
   }
