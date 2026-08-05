@@ -98,3 +98,15 @@ Work these in order; each task lists the exact behavior contract.
   Windows pipeline decodes whole-file after stop, so there is no mid-recording
   transcript to pre-polish yet. Port order: chunked decode -> spec tail ->
   text-keyed polish race -> overlay Finish button.
+
+## 12. v8.10 code-mode fallbacks (PORTED, static-review only)
+
+LocalModes.cs mirrors the Mac build's localModeTransform: deterministic,
+code-only versions of summarize / professional / agent / expand that run when
+the polish proxy cannot answer (no key, no license, offline), so a picked mode
+always changes the output instead of silently pasting raw. Wired at both
+failure points in PolishClient.Apply (proxy null + trust-gate fail).
+NOT compiled or executed on Windows yet: verify with `ptt-dictate.exe` by
+killing network access, dictating in each mode, and confirming the Goal /
+Constraints / Done when / Context brief (agent), bullets (summarize), and
+Open questions (expand) appear.

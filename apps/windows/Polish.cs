@@ -49,14 +49,14 @@ internal static class PolishClient
         var polished = CallProxy(text, mode, TimeSpan.FromSeconds(timeoutSeconds), config);
         if (polished is null)
         {
-            Log.Info($"Polish ({mode}) unavailable; pasting the raw transcript.");
-            return text;
+            Log.Info($"Polish ({mode}) unreachable; applying the built-in code {mode} instead.");
+            return LocalModes.Transform(text, mode);
         }
 
         if (!PassesTrustGate(mode, text, polished))
         {
-            Log.Info($"Polish ({mode}) result failed the trust gate; pasting the raw transcript.");
-            return text;
+            Log.Info($"Polish ({mode}) result failed the trust gate; applying the built-in code {mode} instead.");
+            return LocalModes.Transform(text, mode);
         }
 
         return polished;
