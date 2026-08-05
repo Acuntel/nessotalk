@@ -3,11 +3,11 @@ import { Check, X } from "lucide-react";
 
 const OURS = [
   "Unlimited dictation on Mac and Windows",
-  "Local transcription: audio never uploaded",
-  "Summarize, Professional, and exact-words modes",
+  "100% local: your audio and words never leave your computer",
+  "Five modes: Professional, Summarize, Normal, AI Agent, AI Extend",
+  "Learns you: your usual mode per app becomes automatic",
   "Edit any selected text by voice",
-  "Custom dictionary + voice snippets",
-  "100+ languages and whisper mode",
+  "Custom dictionary, voice snippets, 100+ languages",
 ];
 
 export default function Pricing() {
@@ -68,11 +68,11 @@ export default function Pricing() {
 const QA = [
   [
     "Is my audio really private?",
-    "Yes. Speech-to-text runs entirely on your Mac. The only time text touches the cloud is when you explicitly pick an AI rewrite mode (Summarize or Professional), and that sends text, never audio. Exact-words mode is 100% offline.",
+    "Yes. Everything runs on your computer: the speech-to-text and every rewrite mode. Nothing you say or write is ever uploaded, and dictation works with no internet at all. The app's only network call is a yes-or-no license check that contains no content.",
   ],
   [
     "How is this different from Wispr Flow?",
-    "Same core magic: talk anywhere, clean text appears. The differences: transcription is local instead of cloud, you get voice editing of selected text, and it costs about a third as much.",
+    "Same core magic: talk anywhere, clean text appears. The difference is where the work happens. They process your speech in their cloud; NessoTalk runs entirely on your computer, works offline, and costs about a third as much.",
   ],
   [
     "What do I need to run it?",

@@ -368,6 +368,11 @@ internal sealed class DictationContext : ApplicationContext
                 _config.SetSelectedMode((string)item.Tag!);
                 foreach (var sibling in modeMenu.DropDownItems.OfType<ToolStripMenuItem>())
                     sibling.Checked = ReferenceEquals(sibling, item);
+                DictationSession.ModePickedThisRecording = true;
+                // Teach the per-app habit against the app the recording targets,
+                // never the tray click's own foreground (that would learn the shell).
+                if ((string)item.Tag! != "ask" && DictationSession.LastApp.Length > 0)
+                    ModeHabits.Record(DictationSession.LastApp, (string)item.Tag!);
                 Log.Info($"Mode set to {_config.SelectedMode} (remembered across restarts)");
             };
             modeMenu.DropDownItems.Add(item);
@@ -420,6 +425,11 @@ internal sealed class DictationContext : ApplicationContext
             ShowBalloon("Not licensed", "Visit nesso.tech to activate your copy of ptt-dictate before dictating.");
             return;
         }
+
+        DictationSession.ModePickedThisRecording = false;
+        // Captured at recording start so a later tray pick teaches the habit
+        // against the dictation target, not whatever owns focus at click time.
+        DictationSession.LastApp = PolishClient.ForegroundProcessName();
 
         try
         {

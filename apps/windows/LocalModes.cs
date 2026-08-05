@@ -76,7 +76,14 @@ internal static class LocalModes
         (new Regex(@"\bwouldnt\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "wouldn't"),
         (new Regex(@"\bhasnt\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "hasn't"),
         (new Regex(@"\bhavent\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "haven't"),
+        (new Regex(@"\bthats\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "that's"),
+        (new Regex(@"\bwhats\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "what's"),
+        (new Regex(@"\bheres\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "here's"),
+        (new Regex(@"\btheres\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "there's"),
+        (new Regex(@"\byoure\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "you're"),
+        (new Regex(@"\btheyre\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "they're"),
         (new Regex(@"\bim\b", RegexOptions.Compiled), "I'm"),
+        (new Regex(@"\bive\b", RegexOptions.Compiled), "I've"),
         (new Regex(@"\bi\b", RegexOptions.Compiled), "I"),
     };
 
@@ -189,9 +196,49 @@ internal static class LocalModes
 
     // ── the four modes ──────────────────────────────────────────────────────
 
+    /// Whisper glues spoken clauses into comma run-ons. For prose, split at
+    /// ", and / , but / , so " when BOTH sides are substantial (4+ words).
+    private static IEnumerable<string> SplitRunOns(string sentence)
+    {
+        var parts = new List<string> { sentence };
+        foreach (var joiner in new[] { ", and ", ", but ", ", so " })
+        {
+            var next = new List<string>();
+            foreach (var part in parts)
+            {
+                var rest = part;
+                int idx;
+                while ((idx = rest.IndexOf(joiner, StringComparison.Ordinal)) >= 0)
+                {
+                    var head = rest[..idx];
+                    var tail = rest[(idx + joiner.Length)..];
+                    if (head.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length < 4 ||
+                        tail.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length < 4) break;
+                    next.Add(head);
+                    rest = tail;
+                }
+                next.Add(rest);
+            }
+            parts = next;
+        }
+        return parts;
+    }
+
+    /// "4500 dollars" -> "$4,500" — ONLY when the word "dollars" anchors it, so
+    /// invoice numbers, years, and IDs are never touched.
+    private static readonly Regex SpokenMoney = new(@"\b(\d{1,9}) dollars\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static string FormatSpokenMoney(string s) =>
+        SpokenMoney.Replace(s, m => long.TryParse(m.Groups[1].Value, out var n)
+            ? "$" + n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)
+            : m.Value);
+
     /// Professional: the speaker's own words, minus the junk, cased and punctuated.
     private static string Professional(string text) =>
-        string.Join(' ', CleanedSentences(text).Select(SentenceCased));
+        string.Join(' ', CleanedSentences(text)
+            .SelectMany(SplitRunOns)
+            .Select(s => SentenceCased(FormatSpokenMoney(s))));
 
     /// Summarize: structure without condensing. Enumeration leads become a
     /// dashed list, topic shifts start a new paragraph. Nothing is dropped.
@@ -350,9 +397,81 @@ internal static class LocalModes
             RegexOptions.IgnoreCase);
         var cleaned = Professional(text);
         var questions = new List<string>();
+        // Domain questions first — they are the sharpest ones (v8.12 parity).
+        var domains = new (string Cue, string Question)[]
+        {
+            (@"\b(?:page|button|screen|form|modal|toggle|menu|dropdown|the ui)\b",
+             "- What should the loading, empty, and error states look like?"),
+            (@"\b(?:api|endpoint|route|webhook|request|server)\b",
+             "- What are the auth, rate limit, and error response expectations?"),
+            (@"\b(?:bug|broken|crash|doesn'?t work|not working)\b",
+             "- What are the exact steps that reproduce it, and what should happen instead?"),
+            (@"\b(?:database|table|migration|schema|column)\b",
+             "- Does anything need migrating, and what happens to existing rows?"),
+        };
+        foreach (var (cue, question) in domains)
+        {
+            if (Regex.IsMatch(text, cue, RegexOptions.IgnoreCase)) questions.Add(question);
+            if (questions.Count >= 2) break;
+        }
+        var domainMatched = questions.Count > 0;
         if (!doneCues.IsMatch(text)) questions.Add("- What does done look like, concretely?");
-        if (!edgeCues.IsMatch(text)) questions.Add("- What should happen when the input is empty, missing, or malformed?");
+        if (!domainMatched && !edgeCues.IsMatch(text))
+            questions.Add("- What should happen when the input is empty, missing, or malformed?");
         if (!constraintCues.IsMatch(text)) questions.Add("- Is there anything that must not change?");
         return questions.Count == 0 ? cleaned : cleaned + "\n\nOpen questions:\n" + string.Join('\n', questions);
+    }
+}
+
+/// <summary>
+/// Shared per-dictation state: which app the current or most recent recording
+/// targets, and whether a mode was explicitly picked during it. Written by the
+/// daemon at recording start and tray-menu click, read by the mode router.
+/// </summary>
+internal static class DictationSession
+{
+    public static string LastApp = "";
+    public static bool ModePickedThisRecording;
+}
+
+/// <summary>
+/// Per-app mode habits (v8.12, mirrors the Mac build's mode-usage file): every
+/// explicit tray Mode pick is recorded against the app being dictated into.
+/// Three-plus picks with a 60% majority make that mode the app's default.
+/// </summary>
+internal static class ModeHabits
+{
+    private static string FilePath => Path.Combine(AppPaths.Create().Root, "mode-usage");
+
+    public static void Record(string app, string mode)
+    {
+        try
+        {
+            File.AppendAllText(FilePath, app + "\t" + mode + "\n");
+            var lines = File.ReadAllLines(FilePath);
+            if (lines.Length > 1000) File.WriteAllLines(FilePath, lines[^500..]);
+        }
+        catch { /* habit tracking must never break dictation */ }
+    }
+
+    public static string? Learned(string app)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(app) || !File.Exists(FilePath)) return null;
+            var counts = new Dictionary<string, int>();
+            var total = 0;
+            foreach (var line in File.ReadAllLines(FilePath).TakeLast(200))
+            {
+                var parts = line.Split('\t');
+                if (parts.Length != 2 || !parts[0].Equals(app, StringComparison.OrdinalIgnoreCase)) continue;
+                counts[parts[1]] = counts.GetValueOrDefault(parts[1]) + 1;
+                total++;
+            }
+            if (total < 3) return null;
+            var top = counts.OrderByDescending(kv => kv.Value).First();
+            return top.Value >= total * 0.6 ? top.Key : null;
+        }
+        catch { return null; }
     }
 }

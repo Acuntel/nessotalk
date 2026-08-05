@@ -70,10 +70,19 @@ internal static class PolishClient
     // DEFAULT_MODE decides instead. Everywhere else, DEFAULT_MODE decides.
     private static string SelectMode(AppConfig config)
     {
-        // v8.8: an explicitly picked (and remembered) mode beats the app-based routing,
-        // exactly like a HUD mode pick on the Mac build.
-        if (config.SelectedMode != "ask") return config.SelectedMode;
+        // v8.12 Mac-parity ordering: a mode picked DURING this recording wins,
+        // then this app's learned habit, then the sticky remembered mode, then
+        // the app-based routing, then DEFAULT_MODE.
+        if (config.SelectedMode != "ask" && DictationSession.ModePickedThisRecording)
+            return config.SelectedMode;
         var foreground = ForegroundProcessName();
+        var learned = ModeHabits.Learned(foreground);
+        if (learned is not null && learned != config.SelectedMode)
+        {
+            Log.Info($"Learned mode for {foreground}: {learned} (your usual pick here)");
+            return learned;
+        }
+        if (config.SelectedMode != "ask") return config.SelectedMode;
         var aiTarget = MatchesAppList(foreground, config.PolishApps);
         var proTarget = MatchesAppList(foreground, config.ProApps);
         if (proTarget && !aiTarget) return "professional";
@@ -91,7 +100,7 @@ internal static class PolishClient
         return false;
     }
 
-    private static string ForegroundProcessName()
+    internal static string ForegroundProcessName()
     {
         try
         {

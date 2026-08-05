@@ -10,7 +10,7 @@ const POINTS = [
   {
     icon: MicOff,
     title: "Your voice never reaches our servers",
-    body: "Transcription runs entirely on your own computer, so we never receive your recordings in the first place. Only the AI rewriting step sends text, and only when you choose it.",
+    body: "Transcription and every rewrite mode run entirely on your own computer, so we never receive your recordings or your words at all. The only thing the app ever sends is a yes-or-no license check.",
   },
   {
     icon: UserRound,

@@ -122,3 +122,13 @@ per bundle id in mode-usage; 3+ picks at 60%+ make that mode the app's default).
 Windows needs foreground-at-dictation tracking first — recording the foreground
 process at tray-menu click time would capture the shell, not the target app,
 and poison the habit file. Wire it to the process captured at recording start.
+
+UPDATE v8.12: per-app habit learning is now PORTED (static-review only). The
+foreground process is captured at RECORDING START into DictationSession.LastApp,
+so a tray Mode pick teaches ModeHabits (mode-usage file) against the dictation
+target instead of the shell. SelectMode ordering now matches the Mac build:
+picked-this-recording > learned habit > sticky mode > app routing > default.
+Also ported: comma run-on splitting + "$4,500" money formatting (Professional),
+domain-aware Open questions (Expand), extra safe contractions. Verify on a real
+Windows machine: pick a mode 3x in one app, dictate without picking, and expect
+"Learned mode for <app>" in the log.
