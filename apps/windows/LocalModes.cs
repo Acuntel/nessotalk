@@ -12,14 +12,37 @@ namespace PttDictate;
 /// </summary>
 internal static class LocalModes
 {
-    public static string Transform(string text, string mode) => mode switch
+    public static string Transform(string text, string mode)
     {
-        "summarize" => Summarize(text),
-        "professional" => Professional(text),
-        "agent" => AgentBrief(text),
-        "expand" => Expand(text),
-        _ => text,
-    };
+        var cleaned = Professional(text);
+        var candidate = mode switch
+        {
+            "summarize" => Summarize(text),
+            "professional" => cleaned,
+            "agent" => AgentBrief(text),
+            "expand" => Expand(text),
+            _ => text,
+        };
+        if (mode == "professional" || candidate == text) return candidate;
+        return FactGuardrail(cleaned, candidate);
+    }
+
+    // Fact guardrail: a transform may reorganize, never lose. Every number that
+    // survives cleanup must appear in the output, or the safer cleaned text
+    // ships instead. A guarantee code can make that a model cannot.
+    private static readonly Regex NumberToken = new(@"\d[\d,.]*\d|\d", RegexOptions.Compiled);
+
+    private static string FactGuardrail(string cleaned, string candidate)
+    {
+        var pool = NumberToken.Matches(candidate).Select(m => m.Value).ToList();
+        foreach (Match m in NumberToken.Matches(cleaned))
+        {
+            var i = pool.IndexOf(m.Value);
+            if (i < 0) return cleaned;
+            pool.RemoveAt(i);
+        }
+        return candidate;
+    }
 
     // ── shared cleanup ──────────────────────────────────────────────────────
 
@@ -210,36 +233,106 @@ internal static class LocalModes
         return string.Join("\n\n", blocks);
     }
 
-    /// Agent: sort each clause into the brief section its cue words point at.
-    /// Sections that catch nothing are omitted; nothing is ever invented.
-    private static string AgentBrief(string text)
+    /// Agent v2 (matches the Mac build): weighted cue scoring per clause, tried
+    /// at two strictness levels, and the better-shaped brief wins. An ambiguous
+    /// clause stays in Goal on purpose — precision beats recall. Extra cues
+    /// hot-load from mode-rules in the app data dir ("constraint: hands off = 3").
+    private static List<(string Section, string Pattern, double Weight)> CueTable()
     {
-        var constraintCues = new Regex(
-            @"\b(?:don'?t|do not|shouldn'?t|should not|must not|never|avoid|without (?:breaking|touching)|keep (?:the|it|everything)|leave (?:the|it)|make sure|only touch)\b",
-            RegexOptions.IgnoreCase);
-        var doneCues = new Regex(
-            @"\b(?:done when|should (?:return|show|display|work|pass|see)|expect(?:ed)? to|so that|it works when|tests? pass|verify that)\b",
-            RegexOptions.IgnoreCase);
-        var contextCues = new Regex(
-            @"(?:\b(?:error|fails?|failing|crash(?:es|ing)?|currently|right now|the bug|stack trace)\b|[\w-]+\.(?:swift|ts|tsx|js|jsx|py|go|cs|rb|css|html|json|md)\b|/[\w./-]{3,})",
-            RegexOptions.IgnoreCase);
+        var cues = new List<(string, string, double)>
+        {
+            ("constraint", @"\b(?:don'?t|do not|shouldn'?t|should not|must not|never|avoid|without (?:breaking|touching)|only touch|hands off)\b", 3),
+            ("constraint", @"\b(?:make sure|keep (?:the|it|everything)|leave (?:the|it)|stay (?:away from|out of)|be careful)\b", 2),
+            ("done", @"\b(?:done when|it works when|tests? (?:pass|passing)|verify that|acceptance criteria)\b", 3),
+            ("done", @"\b(?:should (?:return|show|display|pass|see|survive)|expect(?:ed)? to|so that|when (?:i|you|it)'?m?s? (?:done|finished))\b", 2),
+            ("context", @"\b(?:error|stack trace|crash(?:es|ing)?|the bug|fails?|failing|broken)\b", 3),
+            ("context", @"(?:\b(?:currently|right now|at the moment|today it)\b|[\w-]+\.(?:swift|ts|tsx|js|jsx|py|go|cs|rb|css|html|json|md)\b|/[\w./-]{3,})", 2),
+            ("goal", @"^(?:please\s+)?(?:add|fix|build|make|create|update|change|remove|delete|implement|wire|write|move|rename|refactor|redesign|set up|hook up|clean up)\b", 3),
+            ("goal", @"\b(?:i (?:want|need) (?:you )?to|can you|we need to|the goal is|i'?m trying to)\b", 3),
+            ("goal", @"\b(?:it should|it needs to|there should be)\b", 1.5),
+        };
+        try
+        {
+            var path = Path.Combine(AppPaths.Create().Root, "mode-rules");
+            if (File.Exists(path))
+            {
+                foreach (var raw in File.ReadAllLines(path))
+                {
+                    var line = raw.Trim();
+                    if (line.Length == 0 || line.StartsWith('#')) continue;
+                    var colon = line.IndexOf(':');
+                    if (colon <= 0) continue;
+                    var section = line[..colon].Trim().ToLowerInvariant();
+                    if (section is not ("goal" or "constraint" or "done" or "context")) continue;
+                    var phrase = line[(colon + 1)..].Trim();
+                    var weight = 2.0;
+                    var eq = phrase.LastIndexOf('=');
+                    if (eq >= 0 && double.TryParse(phrase[(eq + 1)..].Trim(), out var w))
+                    {
+                        weight = w;
+                        phrase = phrase[..eq].Trim();
+                    }
+                    if (phrase.Length == 0) continue;
+                    cues.Add((section, @"\b" + Regex.Escape(phrase) + @"\b", weight));
+                }
+            }
+        }
+        catch { /* a malformed rules file must never break dictation */ }
+        return cues;
+    }
+
+    private static (string Brief, double Quality) BuildBrief(
+        List<string> clauses, List<(string Section, string Pattern, double Weight)> cues, double threshold)
+    {
         var goal = new List<string>();
         var constraints = new List<string>();
         var done = new List<string>();
         var context = new List<string>();
-        foreach (var c in TaskClauses(text))
+        for (var i = 0; i < clauses.Count; i++)
         {
-            if (constraintCues.IsMatch(c)) constraints.Add(c);
-            else if (doneCues.IsMatch(c)) done.Add(c);
-            else if (contextCues.IsMatch(c)) context.Add(c);
-            else goal.Add(c);
+            var c = clauses[i];
+            // The opening clause is the goal until strong evidence says otherwise.
+            var score = new Dictionary<string, double>
+            { ["goal"] = i == 0 ? 2 : 0, ["constraint"] = 0, ["done"] = 0, ["context"] = 0 };
+            foreach (var (section, pattern, weight) in cues)
+            {
+                if (Regex.IsMatch(c, pattern, RegexOptions.IgnoreCase)) score[section] += weight;
+            }
+            var best = new[] { "constraint", "done", "context" }.OrderByDescending(s => score[s]).First();
+            // A clause only leaves Goal when its cue evidence clears the bar AND
+            // beats its goal evidence — the never-misort policy in one line.
+            if (score[best] >= threshold && score[best] > score["goal"])
+            {
+                (best switch { "constraint" => constraints, "done" => done, _ => context }).Add(c);
+            }
+            else
+            {
+                goal.Add(c);
+            }
+        }
+        var quality = goal.Count == 0 ? -4.0 : 3.0;
+        quality += new[] { constraints, done, context }.Count(b => b.Count > 0);
+        foreach (var bucket in new[] { constraints, done, context })
+        {
+            if (bucket.Count > clauses.Count * 0.5) quality -= 2;
         }
         var output = new List<string>();
         if (goal.Count > 0) output.Add("Goal\n" + string.Join(' ', goal.Select(SentenceCased)));
         if (constraints.Count > 0) output.Add("Constraints\n" + string.Join('\n', constraints.Select(x => "- " + SentenceCased(x))));
         if (done.Count > 0) output.Add("Done when\n" + string.Join('\n', done.Select(x => "- " + SentenceCased(x))));
         if (context.Count > 0) output.Add("Context\n" + string.Join('\n', context.Select(x => "- " + SentenceCased(x))));
-        return output.Count == 0 ? Professional(text) : string.Join("\n\n", output);
+        return (string.Join("\n\n", output), quality);
+    }
+
+    private static string AgentBrief(string text)
+    {
+        var clauses = TaskClauses(text);
+        if (clauses.Count == 0) return Professional(text);
+        var cues = CueTable();
+        var best = BuildBrief(clauses, cues, 3.0);
+        var lenient = BuildBrief(clauses, cues, 2.0);
+        if (lenient.Quality > best.Quality) best = lenient;
+        return best.Brief.Length == 0 ? Professional(text) : best.Brief;
     }
 
     /// Expand: code cannot invent detail, so instead of padding it asks. The

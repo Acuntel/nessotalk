@@ -110,3 +110,15 @@ NOT compiled or executed on Windows yet: verify with `ptt-dictate.exe` by
 killing network access, dictating in each mode, and confirming the Goal /
 Constraints / Done when / Context brief (agent), bullets (summarize), and
 Open questions (expand) appear.
+
+## 13. v8.11 self-tuning modes (PARTIALLY PORTED, static-review only)
+
+PORTED into LocalModes.cs: the v2 scored clause classifier (weighted cues, two
+strictness levels, better-shaped brief wins, ambiguous clauses stay in Goal),
+the number-preservation fact guardrail wired into Transform, and hot-loaded
+custom cues from mode-rules in the app data dir (%LOCALAPPDATA%\ptt-dictate).
+NOT PORTED: per-app learned mode defaults (Mac records every explicit HUD pick
+per bundle id in mode-usage; 3+ picks at 60%+ make that mode the app's default).
+Windows needs foreground-at-dictation tracking first — recording the foreground
+process at tray-menu click time would capture the shell, not the target app,
+and poison the habit file. Wire it to the process captured at recording start.

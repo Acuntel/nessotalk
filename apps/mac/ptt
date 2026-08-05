@@ -68,6 +68,23 @@ case "$1" in
       echo "learned: $word — applies from the next dictation"
     fi
     ;;
+  moderules)
+    # Extra cue phrases for the agent-brief sorter ("constraint: hands off = 3").
+    # Hot-loaded on every dictation — edit, save, done. No restart needed.
+    if [ ! -f "$DIR/mode-rules" ]; then
+      cat > "$DIR/mode-rules" <<'SEED'
+# Teach the mode sorter your own phrasing. One rule per line:
+#   <section>: <phrase> [= weight]
+# Sections: goal, constraint, done, context. Default weight is 2.
+# Examples:
+#   constraint: hands off = 3
+#   done: acceptance criteria
+#   goal: i wanna
+SEED
+      chmod 600 "$DIR/mode-rules"
+    fi
+    ${EDITOR:-open -e} "$DIR/mode-rules"
+    ;;
   snippets)
     # Open the snippets file (name = expansion; say "snippet <name>" to expand).
     ${EDITOR:-open -e} "$DIR/snippets"
