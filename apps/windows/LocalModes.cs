@@ -169,7 +169,7 @@ internal static class LocalModes
 
     private static List<string> CleanedSentences(string text) =>
         SplitSentences(text)
-            .Select(s => FixContractions(StripSpokenFiller(ResolveSelfCorrections(s))))
+            .Select(s => FormatSpokenUnits(FixContractions(StripSpokenFiller(ResolveSelfCorrections(s)))))
             .Where(s => s.Length > 0)
             .ToList();
 
@@ -234,11 +234,27 @@ internal static class LocalModes
             ? "$" + n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)
             : m.Value);
 
+    // "35 percent" -> "35%", "9 am" -> "9 AM". Digit-anchored so "I am" and
+    // numberless uses of "percent" are never touched (v8.16 parity).
+    private static readonly Regex SpokenPercent = new(@"\b(\d+(?:\.\d+)?) percent\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex SpokenAmPm = new(@"\b(\d{1,2}(?::\d{2})?)\s?(am|pm)\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static string FormatSpokenUnits(string s)
+    {
+        var t = FormatSpokenMoney(s);
+        t = SpokenPercent.Replace(t, "$1%");
+        t = SpokenAmPm.Replace(t, m => m.Groups[1].Value + " " + m.Groups[2].Value.ToUpperInvariant());
+        return t;
+    }
+
     /// Professional: the speaker's own words, minus the junk, cased and punctuated.
+    /// Unit formatting already happened in CleanedSentences, shared by every mode.
     private static string Professional(string text) =>
         string.Join(' ', CleanedSentences(text)
             .SelectMany(SplitRunOns)
-            .Select(s => SentenceCased(FormatSpokenMoney(s))));
+            .Select(SentenceCased));
 
     /// Summarize: structure without condensing. Enumeration leads become a
     /// dashed list, topic shifts start a new paragraph. Nothing is dropped.
@@ -250,13 +266,26 @@ internal static class LocalModes
         var topicShift = new Regex(
             @"^(?:anyway|separately|one more thing|oh and|on another note)[,]?\s+",
             RegexOptions.IgnoreCase);
+        // Short, self-contained commitments collect into an Action items block
+        // at the end (v8.16). Long sentences with an action cue stay in place.
+        var actionCue = new Regex(@"\b(?:need(?:s)? to|have to|remember to|don'?t forget|make sure to|todo|to-do)\b",
+            RegexOptions.IgnoreCase);
         var blocks = new List<string>();
         var para = new List<string>();
         var list = new List<string>();
+        var actions = new List<string>();
         void FlushPara() { if (para.Count > 0) { blocks.Add(string.Join(' ', para)); para.Clear(); } }
         void FlushList() { if (list.Count > 0) { blocks.Add(string.Join('\n', list.Select(x => "- " + x))); list.Clear(); } }
-        foreach (var s in CleanedSentences(text))
+        var sentences = CleanedSentences(text).SelectMany(SplitRunOns).ToList();
+        foreach (var s in sentences)
         {
+            if (sentences.Count > 2 &&
+                s.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 20 &&
+                actionCue.IsMatch(s))
+            {
+                actions.Add(SentenceCased(s));
+                continue;
+            }
             var listMatch = listLead.Match(s);
             var shiftMatch = topicShift.Match(s);
             if (listMatch.Success)
@@ -277,6 +306,8 @@ internal static class LocalModes
             }
         }
         FlushList(); FlushPara();
+        if (actions.Count > 0)
+            blocks.Add("Action items\n" + string.Join('\n', actions.Select(x => "- " + x)));
         return string.Join("\n\n", blocks);
     }
 
@@ -408,6 +439,12 @@ internal static class LocalModes
              "- What are the exact steps that reproduce it, and what should happen instead?"),
             (@"\b(?:database|table|migration|schema|column)\b",
              "- Does anything need migrating, and what happens to existing rows?"),
+            (@"\b(?:payment|checkout|billing|stripe|subscription|invoice)\b",
+             "- What should happen on a failed, disputed, or refunded payment?"),
+            (@"\b(?:login|log in|signup|sign up|auth|password|session)\b",
+             "- Which users does this apply to, and what happens to existing sessions?"),
+            (@"\b(?:deploy|release|ship it|rollout|roll out)\b",
+             "- Is there a rollout order or migration involved, and is rollback required?"),
         };
         foreach (var (cue, question) in domains)
         {
