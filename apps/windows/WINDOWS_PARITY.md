@@ -132,3 +132,12 @@ Also ported: comma run-on splitting + "$4,500" money formatting (Professional),
 domain-aware Open questions (Expand), extra safe contractions. Verify on a real
 Windows machine: pick a mode 3x in one app, dictate without picking, and expect
 "Learned mode for <app>" in the log.
+
+## 14. v8.14 sound-alike learning (NOT PORTED)
+
+The Mac build corrects near-misses of learned words phonetically (Soundex +
+edit distance, all words must match for multi-word names, real-dictionary-word
+guard for single words) and self-promotes a twice-seen spelling into
+learned-words.txt. Windows has NO learned-dictionary subsystem at all yet
+(static WHISPER_PROMPT only), so port order is: learned-words.txt loader +
+exact variant regex in TextFormatter first, then the fuzzy pass + promotion.
