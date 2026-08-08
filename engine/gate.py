@@ -37,19 +37,37 @@ async def license_ok(key: str, machine: str, platform: str) -> bool:
     # machine/platform are forwarded from the client verbatim: /api/license
     # does per-platform seat binding, and inventing an id here would claim a
     # customer's seat (the field is `machine`, not `machine_id`).
-    async with httpx.AsyncClient(timeout=10) as c:
-        r = await c.post(
-            LICENSE_URL,
-            json={"key": key, "machine": machine, "platform": platform},
-        )
-    ok = r.status_code == 200 and bool(r.json().get("valid"))
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.post(
+                LICENSE_URL,
+                json={"key": key, "machine": machine, "platform": platform},
+            )
+        ok = r.status_code == 200 and bool(r.json().get("valid"))
+    except (httpx.HTTPError, ValueError):
+        # License server unreachable: fail CLOSED for new keys, but let a
+        # recently-validated key ride out the blip via the cache below.
+        raise HTTPException(status_code=503, detail="license_check_failed")
     _cache[key] = (ok, now + (600 if ok else 60))
     return ok
 
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "model": os.environ.get("MODEL_TAG", "engine-v1")}
+    # Health means the DECODER answers, not merely this gate process. The
+    # first deploy shipped a decoder that could not start while /health said
+    # ok; never let that happen again.
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get("http://127.0.0.1:8977/")
+        decoder = r.status_code == 200
+    except httpx.HTTPError:
+        decoder = False
+    return {
+        "ok": decoder,
+        "decoder": decoder,
+        "model": os.environ.get("MODEL_TAG", "engine-v1"),
+    }
 
 
 @app.post("/transcribe")
@@ -81,12 +99,15 @@ async def transcribe(
     if prompt:
         data["prompt"] = prompt
 
-    async with httpx.AsyncClient(timeout=600) as c:
-        r = await c.post(
-            DECODER,
-            data=data,
-            files={"file": (file.filename or "audio.wav", audio, "audio/wav")},
-        )
+    try:
+        async with httpx.AsyncClient(timeout=600) as c:
+            r = await c.post(
+                DECODER,
+                data=data,
+                files={"file": (file.filename or "audio.wav", audio, "audio/wav")},
+            )
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="decoder_down")
     if r.status_code != 200:
         raise HTTPException(status_code=502, detail="decoder")
     text = (r.json().get("text") or "").strip()
