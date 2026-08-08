@@ -9,8 +9,8 @@ const POINTS = [
   },
   {
     icon: MicOff,
-    title: "Your voice never reaches our servers",
-    body: "Transcription and every rewrite mode run entirely on your own computer, so we never receive your recordings or your words at all. The only thing the app ever sends is a yes-or-no license check.",
+    title: "Your voice goes to our engine and nowhere else",
+    body: "Recordings travel over an encrypted connection to NessoTalk's own speech engine, come back as text in seconds, and are immediately discarded. We never store your audio, never sell it, and never hand it to a third-party AI company, because the engine is ours.",
   },
   {
     icon: UserRound,
@@ -33,8 +33,8 @@ export function Trust() {
             How we handle your voice, your data, and your money
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-center text-lg leading-8 text-muted">
-            Everything sensitive stays on your computer, and everything billing
-            related stays in your control.
+            Your words come back as text and are gone from our servers seconds
+            later, and everything billing related stays in your control.
           </p>
         </Reveal>
 

@@ -25,7 +25,7 @@ const STEPS = [
     title: "Say yes to the microphone",
     time: "15 seconds",
     body: "Your computer asks for microphone and accessibility permission once. NessoTalk needs both: one to hear you, one to type for you.",
-    hint: "Nothing is recorded until you press the key, and audio never leaves your machine.",
+    hint: "Nothing is recorded until you press the key, and recordings are discarded the moment they become text.",
   },
   {
     icon: Sparkles,

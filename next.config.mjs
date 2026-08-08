@@ -6,6 +6,7 @@ const nextConfig = {
   // bundle has to be told to include them.
   outputFileTracingIncludes: {
     "/api/download": ["./assets/downloads/**"],
+    "/download/[platform]": ["./assets/downloads/**"],
   },
 };
 

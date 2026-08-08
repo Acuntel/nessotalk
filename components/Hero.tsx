@@ -1,11 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import WaveformPill from "@/components/WaveformPill";
-
-const PLATFORMS = [" Mac", "⊞ Windows"];
 
 // The line that curves around the hero, as if the words you spoke are still
 // travelling toward the page.
@@ -29,27 +26,11 @@ export default function Hero() {
       {/* The spoken line travelling across the page under the demo. */}
 
       <div className="relative mx-auto max-w-4xl text-center">
-        <motion.div
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="flex items-center justify-center gap-3"
-        >
-          {PLATFORMS.map((p) => (
-            <span
-              key={p}
-              className="rounded-full border border-ink/25 bg-card px-5 py-2 text-sm font-semibold text-ink"
-            >
-              {p}
-            </span>
-          ))}
-        </motion.div>
-
         <motion.h1
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.1 }}
-          className="mt-7 font-display text-4xl leading-[1.05] tracking-tight text-ink sm:text-5xl"
+          className="font-display text-4xl leading-[1.05] tracking-tight text-ink sm:text-5xl"
         >
           Say it once and it is<br className="hidden sm:block" />{" "}
           <span className="italic text-rosedeep">already written</span>
@@ -71,12 +52,20 @@ export default function Hero() {
           transition={{ duration: 0.7, delay: 0.3 }}
           className="mt-9 flex flex-col items-center gap-4"
         >
-          <Link
-            href="/start"
-            className="rounded-2xl bg-rose px-10 py-4 text-lg font-semibold text-white shadow-glow transition hover:bg-rosedeep"
-          >
-            Start your 14 day trial
-          </Link>
+          <div id="download" className="flex flex-col items-center gap-3 sm:flex-row">
+            <a
+              href="/download/mac"
+              className="rounded-2xl bg-rose px-9 py-4 text-lg font-semibold text-white shadow-glow transition hover:bg-rosedeep"
+            >
+               Download for Mac
+            </a>
+            <a
+              href="/download/windows"
+              className="rounded-2xl bg-ink px-9 py-4 text-lg font-semibold text-paper transition hover:bg-rosedeep"
+            >
+              ⊞ Download for Windows
+            </a>
+          </div>
           <p className="text-sm text-muted">
             Free for fourteen days, then $4.99 a month. Cancel in one click.
           </p>

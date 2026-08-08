@@ -6,7 +6,7 @@ export function ProofBar() {
       <div className="mx-auto grid max-w-6xl grid-cols-2 gap-6 px-5 py-8 text-center sm:grid-cols-4">
         {[
           ["~2s", "from stop tap to pasted text"],
-          ["100%", "on your computer, even offline"],
+          ["5", "rewrite modes, one per kind of writing"],
           ["3x", "cheaper than the big-name tool"],
           ["45 min", "max dictation, pastes in seconds"],
         ].map(([n, l]) => (
@@ -101,10 +101,10 @@ export function FinalCTA() {
         computer within a minute of finishing setup.
       </p>
       <Link
-        href="/start"
+        href="/#download"
         className="mt-8 inline-block rounded-xl bg-rose px-10 py-4 text-lg font-semibold text-white shadow-glow transition hover:bg-rosedeep"
       >
-        Start your free trial
+        Download NessoTalk free
       </Link>
     </section>
   );

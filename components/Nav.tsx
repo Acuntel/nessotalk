@@ -28,10 +28,10 @@ export default function Nav() {
             Sign in
           </Link>
           <Link
-            href="/start"
+            href="/#download"
             className="rounded-lg bg-rose px-4 py-2 text-sm font-semibold text-white transition hover:bg-rosedeep"
           >
-            Start free trial
+            Download
           </Link>
         </div>
       </nav>

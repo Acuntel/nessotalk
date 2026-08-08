@@ -12,11 +12,11 @@ const body = Inter({ subsets: ["latin"], variable: "--font-body" });
 export const metadata: Metadata = {
   title: "NessoTalk: talk instead of type, on Mac and Windows",
   description:
-    "NessoTalk turns your voice into clean, polished text in any app on Mac or Windows. Transcription runs on your machine, your words stay yours, and it costs a third of the big-name tools. 14 days free.",
+    "NessoTalk turns your voice into clean, polished text in any app on Mac or Windows. Powered by our own speech engine, with five rewrite modes, for a third of the price of the big-name tools. 14 days free.",
   openGraph: {
     title: "NessoTalk",
     description:
-      "Local-first voice dictation for Mac and Windows. Speak anywhere, paste clean text in seconds. 14 days free, no card.",
+      "Voice dictation for Mac and Windows on NessoTalk's own speech engine. Speak anywhere, paste clean text in seconds. 14 days free, no card.",
     url: "https://nesso.tech",
     siteName: "NessoTalk",
   },

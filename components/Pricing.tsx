@@ -3,7 +3,7 @@ import { Check, X } from "lucide-react";
 
 const OURS = [
   "Unlimited dictation on Mac and Windows",
-  "100% local: your audio and words never leave your computer",
+  "Our own speech engine, hosted by us and tuned for how you talk",
   "Five modes: Professional, Summarize, Normal, AI Agent, AI Extend",
   "Learns you: your usual mode per app becomes automatic",
   "Edit any selected text by voice",
@@ -18,8 +18,9 @@ export default function Pricing() {
       </h2>
       <p className="mx-auto mt-4 max-w-2xl text-center text-muted">
         The well-known apps charge about fifteen dollars a month forever.
-        NessoTalk does the same job on the computer you already own, so it
-        costs a third of that.
+        NessoTalk runs on our own speech engine instead of renting someone
+        else&apos;s by the minute, so the low price is structural, not a launch
+        discount.
       </p>
 
       <div className="mx-auto mt-14 grid max-w-4xl gap-6 sm:grid-cols-2">
@@ -29,7 +30,7 @@ export default function Pricing() {
             $15<span className="text-lg">/mo</span>
           </div>
           <ul className="mt-6 space-y-3 text-sm text-muted">
-            <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-muted" />Audio processed in their cloud</li>
+            <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-muted" />Priced like a corporate tool, even for personal use</li>
             <li className="flex gap-2"><X className="mt-0.5 h-4 w-4 shrink-0 text-muted" />$180 a year, every year</li>
             <li className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-muted" />It is genuinely good dictation, to be fair to them</li>
           </ul>
@@ -68,15 +69,15 @@ export default function Pricing() {
 const QA = [
   [
     "Is my audio really private?",
-    "Yes. Everything runs on your computer: the speech-to-text and every rewrite mode. Nothing you say or write is ever uploaded, and dictation works with no internet at all. The app's only network call is a yes-or-no license check that contains no content.",
+    "Your recordings travel over an encrypted connection to NessoTalk's own speech engine, come back as text in about two seconds, and are immediately discarded. We never store your audio, never sell it, and never pass it to a third-party AI company, because the engine is ours, running on our own servers.",
   ],
   [
     "How is this different from Wispr Flow?",
-    "Same core magic: talk anywhere, clean text appears. The difference is where the work happens. They process your speech in their cloud; NessoTalk runs entirely on your computer, works offline, and costs about a third as much.",
+    "Same core magic: talk anywhere, clean text appears. NessoTalk gives you five rewrite modes, including briefs written specifically for AI coding agents, it learns which mode you use in each app, and it costs about a third as much. We built and host our own speech engine instead of renting one by the minute, which is how the price stays low.",
   ],
   [
     "What do I need to run it?",
-    "On Mac: Apple Silicon (M1 or newer) runs it best. On Windows: Windows 11 with the .NET 9 runtime, which the installer sets up for you. Either way you grant microphone permission once during a guided setup.",
+    "Any modern Mac or a Windows 11 PC, plus an internet connection. The heavy lifting happens on NessoTalk's servers, so the app itself stays light on your machine. You grant microphone permission once during a guided setup.",
   ],
   [
     "What happens after the 14-day trial?",
