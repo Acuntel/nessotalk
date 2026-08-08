@@ -141,3 +141,16 @@ guard for single words) and self-promotes a twice-seen spelling into
 learned-words.txt. Windows has NO learned-dictionary subsystem at all yet
 (static WHISPER_PROMPT only), so port order is: learned-words.txt loader +
 exact variant regex in TextFormatter first, then the fuzzy pass + promotion.
+
+## 15. v8.17 cloud engine (PORTED, static-review only)
+Cloud-first transcription is wired: `WhisperTranscriber.TranscribeAsync` calls
+`TryCloudTranscribeAsync` (hosted engine, `x-license-key` header + machine +
+platform=windows form fields) before the local whisper-cli path, and the local
+requires now sit AFTER the cloud attempt so a future thin-shell build can ship
+without bundled weights. Config keys `CLOUD` / `TRANSCRIBE_URL` mirror the Mac
+daemon. NOT executed on a real Windows box yet, same standing caveat as the
+Ed25519 verify.
+KNOWN GAP: `License.cs` check-in payload still omits the `platform` field, so
+Windows check-ins register as platform=mac on the server (per-platform seat
+binding is weakened until fixed). The cloud transcribe path DOES send
+platform=windows correctly.

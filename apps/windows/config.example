@@ -73,3 +73,10 @@ PRIVACY_MODE=1
 HISTORY_DAYS=7
 # Keep the audio of the last dictation on disk. Off by default.
 KEEP_LAST_CLIP=0
+
+# v8.17 cloud pivot: transcription runs on the hosted NessoTalk engine,
+# license-gated on every request. Local whisper stays as the automatic
+# fallback so dictation keeps working through any outage. 0 = all-local.
+CLOUD=1
+# Override only if the engine moves. Default is baked into the app.
+# TRANSCRIBE_URL=

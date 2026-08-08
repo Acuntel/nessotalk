@@ -53,6 +53,27 @@ case "$1" in
     if [ "$new" = 1 ]; then echo "whisper-mode ON  — dictate at a whisper (strong gain + low VAD gate, restarted)";
     else echo "whisper-mode OFF — normal voice chain (restarted)"; fi
     ;;
+  cloud)
+    # Toggle the hosted NessoTalk engine (v8.17 cloud pivot). ON = transcribe
+    # on our engine, local whisper as automatic fallback. OFF = all-local.
+    # Same shape as `ptt call`.
+    cfgf="$DIR/config"
+    cur=$(grep -E '^CLOUD=' "$cfgf" | tail -1 | cut -d= -f2)
+    case "${2:-toggle}" in
+      on|1)   new=1 ;;
+      off|0)  new=0 ;;
+      status) [ "${cur:-1}" = "0" ] && echo "cloud OFF (all-local)" || echo "cloud ON (hosted engine, local fallback)"; exit 0 ;;
+      *)      [ "$cur" = "1" ] && new=0 || new=1 ;;
+    esac
+    if grep -qE '^CLOUD=' "$cfgf"; then
+      sed -i '' -E "s/^CLOUD=.*/CLOUD=$new/" "$cfgf"
+    else
+      printf '\nCLOUD=%s\n' "$new" >> "$cfgf"
+    fi
+    launchctl kickstart -k "$DOMAIN/$LABEL" >/dev/null 2>&1
+    if [ "$new" = 1 ]; then echo "cloud ON  — hosted NessoTalk engine first, local decode as fallback (restarted)";
+    else echo "cloud OFF — all-local decode (restarted)"; fi
+    ;;
   learn)
     # Teach the dictionary a word: ptt learn "Word" [misheard1 misheard2 ...]
     # Appends to learned-words.txt; hot-reloaded — applies from the next dictation.

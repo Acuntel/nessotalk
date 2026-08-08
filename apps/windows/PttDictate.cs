@@ -6,6 +6,7 @@ using System.IO.Pipes;
 using System.Media;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows.Automation;
 using System.Windows.Forms;
@@ -204,6 +205,12 @@ internal sealed class AppConfig
 
     // AI polish via the nesso.tech server proxy (see Polish.cs).
     public string PolishProxyUrl => Get("POLISH_PROXY_URL", "https://nesso.tech/api/polish");
+
+    // v8.17 cloud pivot: transcription runs on NessoTalk's hosted engine,
+    // license-gated per request; local whisper-cli remains the automatic
+    // fallback. Mirrors the Mac daemon's CLOUD/TRANSCRIBE_URL keys.
+    public bool CloudTranscribe => GetBool("CLOUD", true);
+    public string TranscribeUrl => Get("TRANSCRIBE_URL", "https://nessotalk-engine-production.up.railway.app/transcribe");
     public string DefaultMode => NormalizeMode(Get("DEFAULT_MODE", "summarize"));
 
     // v8.8 remembered mode (shared schema with the Mac build's SELECTED_MODE): the mode
@@ -1060,13 +1067,21 @@ internal sealed class WhisperTranscriber
 
     public async Task<string> TranscribeAsync(string inputWav, CancellationToken cancellationToken)
     {
-        RequireFile(_config.WhisperCli, "whisper-cli");
-        RequireFile(_config.WhisperModel, "Whisper model");
-        RequireFile(_config.VadModel, "Silero VAD model");
         RequireFile(inputWav, "input WAV");
 
         var normalized = Path.Combine(_paths.Recordings, Path.GetFileNameWithoutExtension(inputWav) + "-16k.wav");
         await NormalizeAsync(inputWav, normalized, cancellationToken);
+
+        // v8.17 cloud pivot: hosted NessoTalk engine first, license-gated per
+        // request; local whisper-cli is the automatic fallback so dictation
+        // survives an engine or network outage. Conditioning stays client-side
+        // (NormalizeAsync above), matching the Mac daemon.
+        var cloudText = await TryCloudTranscribeAsync(normalized, cancellationToken);
+        if (cloudText is not null) return cloudText;
+
+        RequireFile(_config.WhisperCli, "whisper-cli");
+        RequireFile(_config.WhisperModel, "Whisper model");
+        RequireFile(_config.VadModel, "Silero VAD model");
         var outputBase = Path.Combine(_paths.Recordings, Path.GetFileNameWithoutExtension(normalized) + "-transcript");
         var args = new List<string>
         {
@@ -1087,6 +1102,45 @@ internal sealed class WhisperTranscriber
         var transcriptFile = outputBase + ".txt";
         if (!File.Exists(transcriptFile)) throw new InvalidOperationException("whisper-cli completed without producing a transcript file.");
         return await File.ReadAllTextAsync(transcriptFile, cancellationToken);
+    }
+
+    private static readonly HttpClient CloudHttp = new() { Timeout = TimeSpan.FromMinutes(10) };
+
+    // Returns null on ANY trouble (no license, engine down, bad status, empty
+    // text) so the caller falls through to the local decode. Never throws.
+    private async Task<string?> TryCloudTranscribeAsync(string wavPath, CancellationToken cancellationToken)
+    {
+        if (!_config.CloudTranscribe || string.IsNullOrEmpty(_config.LicenseKey)) return null;
+        try
+        {
+            using var form = new MultipartFormDataContent();
+            var audio = new ByteArrayContent(await File.ReadAllBytesAsync(wavPath, cancellationToken));
+            audio.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
+            form.Add(audio, "file", Path.GetFileName(wavPath));
+            form.Add(new StringContent(MachineId.Get()), "machine");
+            form.Add(new StringContent("windows"), "platform");
+            form.Add(new StringContent(_config.WhisperLanguage), "language");
+            form.Add(new StringContent(_config.WhisperPrompt), "prompt");
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, _config.TranscribeUrl) { Content = form };
+            request.Headers.Add("x-license-key", _config.LicenseKey);
+            using var response = await CloudHttp.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                Log.Info($"Cloud engine returned {(int)response.StatusCode}; using local decode.");
+                return null;
+            }
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            var text = doc.RootElement.TryGetProperty("text", out var t) ? t.GetString() : null;
+            if (string.IsNullOrWhiteSpace(text)) return null;
+            Log.Info("Cloud engine decode.");
+            return text.Trim();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.Info($"Cloud engine unavailable ({ex.Message}); using local decode.");
+            return null;
+        }
     }
 
     private async Task NormalizeAsync(string input, string output, CancellationToken cancellationToken)
