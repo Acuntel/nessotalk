@@ -30,9 +30,18 @@ fetch "nessotalk-vad-v1.bin"
 
 # Resident decoder on localhost only. The gate below is the only public
 # surface, so an unlicensed request never reaches the model at all.
+#
+# Decode flags MIRROR the desktop's proven resident-server launch args
+# EXACTLY (beam 5 + best-of 5, entropy fallback 2.8, -mc 128, prompt carry).
+# The first deploy omitted them and shipped noticeably worse transcripts —
+# this block must stay in lockstep with `ptt server sync`. Do not add flags
+# the local plist does not carry: an unaccepted launch flag kills the server.
 whisper-server \
   -m "$MODEL_DIR/nessotalk-engine-${MODEL_TAG#engine-}-q5_0.bin" \
   --host 127.0.0.1 --port 8977 -t "${WHISPER_THREADS:-8}" \
+  -nt -l "${ENGINE_LANGUAGE:-en}" \
+  -mc 128 -et 2.8 -bs 5 -bo 5 \
+  --carry-initial-prompt \
   --vad -vm "$MODEL_DIR/nessotalk-vad-v1.bin" -vt "${VAD_THRESHOLD:-0.15}" &
 
 for _ in $(seq 1 180); do

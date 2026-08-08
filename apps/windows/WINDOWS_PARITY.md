@@ -154,3 +154,15 @@ KNOWN GAP: `License.cs` check-in payload still omits the `platform` field, so
 Windows check-ins register as platform=mac on the server (per-platform seat
 binding is weakened until fixed). The cloud transcribe path DOES send
 platform=windows correctly.
+
+## 16. v8.18 decode race + movable/resizable pill (NOT PORTED)
+Mac now (a) routes ChunkEngine decodes: speculative passes LOCAL-only, chunk
+decodes cloud-preferred, tails/whole-files RACE cloud vs local and paste the
+fastest (both timings logged as telemetry); (b) makes the HUD pill draggable
+(isMovableByWindowBackground) and edge-resizable (borderless+.resizable,
+min 420x150, transcript area absorbs all extra space, waveform hides when the
+top bar is tight, session-remembered custom frame, default restored on
+restart). Windows: port the race into WhisperTranscriber (cloud task + local
+task, first non-empty wins) and drag/resize into DictationOverlay
+(WS_THICKFRAME or manual hit-testing). Port order: race first (UX), overlay
+second.
