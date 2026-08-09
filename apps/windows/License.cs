@@ -65,7 +65,10 @@ internal static class LicenseManager
         try
         {
             var machine = MachineId.Get();
-            var payload = JsonSerializer.Serialize(new { key = config.LicenseKey, machine });
+            // platform matters: /api/license does one-activation-per-platform
+            // seat binding. Omitting it registered Windows machines as "mac"
+            // and could block a customer's real Mac from activating.
+            var payload = JsonSerializer.Serialize(new { key = config.LicenseKey, machine, platform = "windows" });
             using var request = new HttpRequestMessage(HttpMethod.Post, config.LicenseUrl)
             {
                 Content = new StringContent(payload, Encoding.UTF8, "application/json")
