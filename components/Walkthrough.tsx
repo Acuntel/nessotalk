@@ -10,7 +10,8 @@ const STEPS = [
     icon: Download,
     title: "Download your copy",
     time: "20 seconds",
-    body: "Your license is already inside the file, so there is no key to type and nothing to activate. Pick your computer and the download starts.",
+    body: "Your license is already inside this file, so there is no key to type and nothing to activate. Pick your computer and the download starts.",
+    hint: "Already installed the version from the home page? Copy your key above and paste it into Settings instead.",
     action: "download",
   },
   {

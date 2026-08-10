@@ -66,8 +66,10 @@ export default function Hero() {
               ⊞ Download for Windows
             </a>
           </div>
-          <p className="text-sm text-muted">
-            Free for fourteen days, then $4.99 a month. Cancel in one click.
+          <p className="max-w-md text-sm leading-6 text-muted">
+            Free for fourteen days, then $4.99 a month. Cancel in one click. You
+            create a free account during setup to get your key, and no card is
+            needed to start.
           </p>
         </motion.div>
       </div>

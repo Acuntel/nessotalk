@@ -32,15 +32,23 @@ export async function GET(req: Request) {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("license_key, plan, revoked")
+    .select("license_key, plan, trial_ends_at, revoked")
     .eq("id", user.id)
     .single();
   if (!profile || profile.revoked) {
     return NextResponse.json({ error: "inactive" }, { status: 402 });
   }
-  // The build sits behind checkout: the 14 free days start there, so anyone
-  // holding a copy has a card on file and a plan we can switch off.
-  if (profile.plan === "trial") {
+  // A live trial gets the real build. "Fourteen days free" has to mean a
+  // working app, or the promise on the pricing card is not true. Gating this
+  // behind checkout dead-ended every new signup: the public zip carries no
+  // key, so a trial user had no path to a copy that could record.
+  //
+  // Access still ends on its own: an expired trial 402s here, the license
+  // check refuses, and the engine stops transcribing.
+  const trialLive = profile.trial_ends_at
+    ? new Date(profile.trial_ends_at).getTime() > Date.now()
+    : false;
+  if (profile.plan === "trial" && !trialLive) {
     return NextResponse.json({ error: "subscribe_required" }, { status: 402 });
   }
 

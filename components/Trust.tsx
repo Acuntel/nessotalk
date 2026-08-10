@@ -10,7 +10,7 @@ const POINTS = [
   {
     icon: MicOff,
     title: "Your voice goes to our engine and nowhere else",
-    body: "Recordings travel over an encrypted connection to NessoTalk's own speech engine, come back as text in seconds, and are immediately discarded. We never store your audio, never sell it, and never hand it to a third-party AI company, because the engine is ours.",
+    body: "Your recording goes to NessoTalk's own speech engine over an encrypted connection, and to a copy of that engine on your own computer, at the same time. Whichever finishes first is what you get, so it still works on a plane. Nothing is stored, nothing is sold, and nothing is handed to a third-party AI company, because the engine is ours.",
   },
   {
     icon: UserRound,

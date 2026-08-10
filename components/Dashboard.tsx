@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Copy, Check, LogOut, Lock } from "lucide-react";
+import { Copy, Check, LogOut } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import Walkthrough from "@/components/Walkthrough";
 
@@ -24,12 +24,11 @@ export default function Dashboard({
 }) {
   const router = useRouter();
   const paid = plan !== "trial";
-  const [entered, setEntered] = useState(false);
+  // A live trial is real access. The old build put checkout in front of the
+  // download, which meant "fourteen days free" bought you nothing you could
+  // actually run.
+  const hasAccess = paid || daysLeft > 0;
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (localStorage.getItem("nt_entered") === "1") setEntered(true);
-  }, []);
 
   async function signOut() {
     await supabaseBrowser().auth.signOut();
@@ -52,46 +51,6 @@ export default function Dashboard({
       encodeURIComponent(uid);
   }
 
-  // Click 3 of the funnel: one button, straight to checkout.
-  if (!entered && !paid) {
-    return (
-      <main className="grain flex min-h-screen flex-col items-center justify-center px-5 text-center">
-        <span className="flex h-10 items-end gap-[3px]">
-          {[14, 30, 19, 36, 16].map((h, i) => (
-            <span key={i} className="w-[4px] rounded-full bg-rose" style={{ height: `${h}px` }} />
-          ))}
-        </span>
-        <h1 className="mt-6 font-display text-4xl text-ink sm:text-5xl">
-          Everything is ready for you
-        </h1>
-        <p className="mx-auto mt-4 max-w-md text-muted">
-          Fourteen days free, then $4.99 a month. Cancel in one click before day
-          14 and you are never charged.
-        </p>
-        <button
-          onClick={() => {
-            localStorage.setItem("nt_entered", "1");
-            setEntered(true);
-            subscribe();
-          }}
-          className="mt-8 rounded-xl bg-rose px-12 py-5 text-xl font-semibold text-white shadow-glow transition hover:bg-rosedeep"
-        >
-          Start your 14-day trial
-        </button>
-        <p className="mt-3 text-xs text-muted">
-          Card required so your access never interrupts mid-sentence. No charge
-          today.
-        </p>
-        <button
-          onClick={signOut}
-          className="mt-10 flex items-center gap-1.5 text-sm text-muted hover:text-ink"
-        >
-          <LogOut className="h-4 w-4" /> Sign out
-        </button>
-      </main>
-    );
-  }
-
   return (
     <main className="grain min-h-screen px-5 py-10">
       <div className="mx-auto max-w-2xl">
@@ -101,7 +60,11 @@ export default function Dashboard({
           </Link>
           <div className="flex items-center gap-4">
             <span className="rounded-full bg-rose/20 px-3 py-1 text-xs font-semibold text-rosedeep ring-1 ring-rose/40">
-              {paid ? `${plan} · active` : `Trial · ${daysLeft} days left`}
+              {paid
+                ? `${plan} · active`
+                : hasAccess
+                  ? `Trial · ${daysLeft} days left`
+                  : "Trial ended"}
             </span>
             <button onClick={signOut} className="text-sm text-muted hover:text-ink">
               Sign out
@@ -109,40 +72,25 @@ export default function Dashboard({
           </div>
         </div>
 
-        {!paid && (
-          <div className="mt-8 rounded-3xl border border-rose/40 bg-card p-8">
-            <div className="flex items-center gap-2 text-rosedeep">
-              <Lock className="h-4 w-4" />
-              <span className="text-xs font-semibold uppercase tracking-wide">
-                One step left
-              </span>
-            </div>
-            <h1 className="mt-3 font-display text-2xl text-ink">
-              Start your trial to unlock the download
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-muted">
-              Fourteen days free, then $4.99 a month. Your copy is built for you
-              with your license inside it, which is why we set up billing first.
-              Cancel any time in one click.
-            </p>
-            <button
-              onClick={subscribe}
-              className="mt-5 w-full rounded-xl bg-rose py-3.5 font-semibold text-white transition hover:bg-rosedeep"
-            >
-              Start 14 days free
-            </button>
-          </div>
-        )}
+        <h1 className="mt-8 font-display text-3xl text-ink">
+          {hasAccess ? "Your copy is ready" : "Your trial has ended"}
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          {hasAccess
+            ? "The download below has your license inside it, so it works the moment it finishes installing."
+            : "Subscribe to switch your copy back on. Everything you set up stays exactly as it was."}
+        </p>
 
-        <div className={`mt-6 ${paid ? "" : "pointer-events-none opacity-50"}`}>
-          <Walkthrough paid={paid} />
-        </div>
-
+        {/* Your key, right at the top. Someone who already installed the free
+            download from the home page needs exactly this and nothing else. */}
         <div className="mt-6 rounded-3xl border border-line bg-card p-8">
           <h2 className="font-display text-xl text-ink">Your license key</h2>
           <p className="mt-1 text-sm leading-6 text-muted">
-            Already inside your download, so you only need this if you set up a
-            second computer. Good for 3 machines.
+            The download below already carries this key. You only need to copy it
+            if you installed from the home page, or you are setting up a second
+            computer. Paste it into Settings in the app, under &quot;Your license
+            key&quot;, then click Save. Good for one Mac, one Windows PC, and one
+            iPhone.
           </p>
           <button
             onClick={copyKey}
@@ -156,6 +104,30 @@ export default function Dashboard({
             )}
           </button>
         </div>
+
+        <div className={`mt-6 ${hasAccess ? "" : "pointer-events-none opacity-50"}`}>
+          <Walkthrough paid={hasAccess} />
+        </div>
+
+        {!paid && (
+          <div className="mt-6 rounded-3xl border border-rose/40 bg-card p-8">
+            <h2 className="font-display text-xl text-ink">
+              {hasAccess
+                ? `Keep it after day ${daysLeft > 0 ? daysLeft : 14}`
+                : "Subscribe to switch it back on"}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              $4.99 a month, or $39 a year. Founding price, locked for as long as
+              you stay subscribed. Cancel in one click, no conversation.
+            </p>
+            <button
+              onClick={subscribe}
+              className="mt-5 w-full rounded-xl bg-rose py-3.5 font-semibold text-white transition hover:bg-rosedeep"
+            >
+              Subscribe for $4.99 a month
+            </button>
+          </div>
+        )}
       </div>
     </main>
   );

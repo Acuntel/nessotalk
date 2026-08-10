@@ -3,7 +3,7 @@ import { Check, X } from "lucide-react";
 
 const OURS = [
   "Unlimited dictation on Mac and Windows",
-  "Our own speech engine, hosted by us and tuned for how you talk",
+  "Our own speech engine, with your computer as an instant backup",
   "Five modes: Professional, Summarize, Normal, AI Agent, AI Extend",
   "Learns you: your usual mode per app becomes automatic",
   "Edit any selected text by voice",
@@ -20,7 +20,7 @@ export default function Pricing() {
         The well-known apps charge about fifteen dollars a month forever.
         NessoTalk runs on our own speech engine instead of renting someone
         else&apos;s by the minute, so the low price is structural, not a launch
-        discount.
+        discount. Founding members keep it for as long as they stay subscribed.
       </p>
 
       <div className="mx-auto mt-14 grid max-w-4xl gap-6 sm:grid-cols-2">
@@ -69,15 +69,15 @@ export default function Pricing() {
 const QA = [
   [
     "Is my audio really private?",
-    "Your recordings travel over an encrypted connection to NessoTalk's own speech engine, come back as text in about two seconds, and are immediately discarded. We never store your audio, never sell it, and never pass it to a third-party AI company, because the engine is ours, running on our own servers.",
+    "Your recording goes two places at once: our own speech engine, over an encrypted connection, and a copy of the engine on your own computer. Whichever finishes first is what you get. We never store your audio, never sell it, and never hand it to a third-party AI company, because the engine is ours and it runs on our own servers.",
   ],
   [
     "How is this different from Wispr Flow?",
-    "Same core magic: talk anywhere, clean text appears. NessoTalk gives you five rewrite modes, including briefs written specifically for AI coding agents, it learns which mode you use in each app, and it costs about a third as much. We built and host our own speech engine instead of renting one by the minute, which is how the price stays low.",
+    "Same core magic: talk anywhere, clean text appears. NessoTalk gives you five rewrite modes, including briefs written specifically for AI coding agents, it learns the words you use and which mode you want in each app, and it costs about a third as much. We run our own speech engine on our own servers instead of renting one by the minute, which is how the price stays low.",
   ],
   [
     "What do I need to run it?",
-    "Any modern Mac or a Windows 11 PC, plus an internet connection. The heavy lifting happens on NessoTalk's servers, so the app itself stays light on your machine. You grant microphone permission once during a guided setup.",
+    "Any modern Mac, or a Windows 11 PC. Setup takes about three minutes, and most of that is a one time download of the speech model that lets your computer keep transcribing when the internet drops. You grant microphone permission once, and that is the last setup step.",
   ],
   [
     "What happens after the 14-day trial?",

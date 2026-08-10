@@ -12,7 +12,7 @@ const body = Inter({ subsets: ["latin"], variable: "--font-body" });
 export const metadata: Metadata = {
   title: "NessoTalk: talk instead of type, on Mac and Windows",
   description:
-    "NessoTalk turns your voice into clean, polished text in any app on Mac or Windows. Powered by our own speech engine, with five rewrite modes, for a third of the price of the big-name tools. 14 days free.",
+    "NessoTalk turns your voice into clean, polished text in any app on Mac or Windows. Our own speech engine, with your computer as an instant backup, five rewrite modes, and a third of the price of the big-name tools. 14 days free, no card.",
   openGraph: {
     title: "NessoTalk",
     description:

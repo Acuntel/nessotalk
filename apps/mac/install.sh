@@ -52,7 +52,9 @@ BASE="https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
 [ -f "$HOME/.whisper-models/ggml-large-v3-turbo-q5_0.bin" ] || curl -# -L -o "$HOME/.whisper-models/ggml-large-v3-turbo-q5_0.bin" "$BASE/ggml-large-v3-turbo-q5_0.bin"
 [ -f "$HOME/.whisper-models/ggml-base.en-q5_1.bin" ] || curl -# -L -o "$HOME/.whisper-models/ggml-base.en-q5_1.bin" "$BASE/ggml-base.en-q5_1.bin"
 [ -f "$HOME/.whisper-models/ggml-silero-v5.1.2.bin" ] || curl -# -L -o "$HOME/.whisper-models/ggml-silero-v5.1.2.bin" "$BASE/ggml-silero-v5.1.2.bin"
-echo "    Done. Your speech is transcribed by this model, on this Mac."
+echo "    Done. NessoTalk transcribes on our engine and on this Mac at the"
+echo "    same time, and uses whichever answers first, so dictation keeps"
+echo "    working even with no internet."
 
 step 3 "Installing NessoTalk and activating your license."
 mkdir -p "$DIR"
@@ -67,8 +69,8 @@ if [ -n "$KEY" ]; then
     || printf '\nLICENSE_KEY=%s\n' "$KEY" >> "$DIR/config"
   echo "    Your license was found in the download and activated automatically."
 else
-  echo "    No license key was found in this folder."
-  say_dialog "License missing" "This copy does not have a license key inside it, so NessoTalk will install but will not record.\n\nSign in at nesso.tech and download your own copy, which comes with your key already inside."
+  echo "    No license key in this folder. Add yours from Settings after setup."
+  say_dialog "One thing left: your key" "NessoTalk is installing now, and it needs a license key before it can record. Getting one is free and takes about a minute.\n\n1. Go to nesso.tech and create your account. Fourteen days free, no card.\n2. Copy the license key shown on your dashboard.\n3. Open NessoTalk from the menu bar, choose Settings, paste the key into \\\"Your license key\\\", and click Save.\n\nThat is it. You can also grab a copy from your dashboard with the key already inside."
 fi
 chmod +x "$DIR/ptt"
 

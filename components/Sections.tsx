@@ -8,7 +8,7 @@ export function ProofBar() {
           ["~2s", "from stop tap to pasted text"],
           ["5", "rewrite modes, one per kind of writing"],
           ["3x", "cheaper than the big-name tool"],
-          ["45 min", "max dictation, pastes in seconds"],
+          ["0", "dictations lost when the internet drops"],
         ].map(([n, l]) => (
           <div key={l}>
             <div className="font-display text-3xl text-ink">{n}</div>
