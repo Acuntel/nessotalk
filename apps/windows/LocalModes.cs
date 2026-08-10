@@ -58,6 +58,10 @@ internal static class LocalModes
     {
         (new Regex(@",\s*(?:like|you know|i mean|i guess)\s*,", RegexOptions.Compiled | RegexOptions.IgnoreCase), ","),
         (new Regex(@"\b(?:you know|i guess|basically|literally)\s*,\s*", RegexOptions.Compiled | RegexOptions.IgnoreCase), ""),
+        // v8.21: trailing throwaways and function-word stutter doubles.
+        // Hedges (kind of / sort of / right?) carry meaning and stay.
+        (new Regex(@",?\s*(?:you know what i mean|if that makes sense|or whatever|and stuff(?: like that)?|and everything)\s*([,.?!]|$)", RegexOptions.Compiled | RegexOptions.IgnoreCase), "$1"),
+        (new Regex(@"\b(the|a|an|to|of|in|on|at|and|but|or|we|i|it|is|was|for|with)\s+\1\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "$1"),
         (new Regex(@"\s{2,}", RegexOptions.Compiled), " "),
     };
 
@@ -82,6 +86,26 @@ internal static class LocalModes
         (new Regex(@"\btheres\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "there's"),
         (new Regex(@"\byoure\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "you're"),
         (new Regex(@"\btheyre\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "they're"),
+        // v8.21: the rest of the unambiguous set (each is a non-word without
+        // its apostrophe; "lets", "were", "its", "ill", "id" stay out).
+        (new Regex(@"\barent\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "aren't"),
+        (new Regex(@"\bwerent\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "weren't"),
+        (new Regex(@"\bhadnt\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "hadn't"),
+        (new Regex(@"\byoull\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "you'll"),
+        (new Regex(@"\btheyll\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "they'll"),
+        (new Regex(@"\btheyve\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "they've"),
+        (new Regex(@"\bweve\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "we've"),
+        (new Regex(@"\byouve\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "you've"),
+        (new Regex(@"\btheyd\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "they'd"),
+        (new Regex(@"\bwhos\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "who's"),
+        (new Regex(@"\bhows\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "how's"),
+        (new Regex(@"\bwheres\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "where's"),
+        (new Regex(@"\bcouldve\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "could've"),
+        (new Regex(@"\bshouldve\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "should've"),
+        (new Regex(@"\bwouldve\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "would've"),
+        (new Regex(@"\bitll\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "it'll"),
+        (new Regex(@"\bthatll\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "that'll"),
+        (new Regex(@"\bmustve\b", RegexOptions.Compiled | RegexOptions.IgnoreCase), "must've"),
         (new Regex(@"\bim\b", RegexOptions.Compiled), "I'm"),
         (new Regex(@"\bive\b", RegexOptions.Compiled), "I've"),
         (new Regex(@"\bi\b", RegexOptions.Compiled), "I"),
@@ -251,34 +275,101 @@ internal static class LocalModes
 
     /// Professional: the speaker's own words, minus the junk, cased and punctuated.
     /// Unit formatting already happened in CleanedSentences, shared by every mode.
-    private static string Professional(string text) =>
-        string.Join(' ', CleanedSentences(text)
+    // v8.21 (email-convention research, Mac parity): greeting and sign-off
+    // get their own lines, unambiguous questions get their question marks
+    // back, and long dictations break into 2-3 sentence paragraphs.
+    private static readonly Regex QuestionStart = new(
+        @"^(?:(?:can|could|would|will|should|shall|do|does|did|is|are|was|were|am|have|has|won'?t|don'?t|didn'?t|isn'?t|aren'?t|shouldn'?t|couldn'?t|wouldn'?t) (?:you|we|i|it|they|he|she|that|this|there|anyone|the)\b|(?:what|when|where|why|how|who|which) (?:can|could|would|will|should|shall|do|does|did|is|are|was|were|am|have|has)\b|(?:what|when|where|why|how|who|which) (?:about|much|many|long|often|soon)\b)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex GreetingShape = new(
+        @"^(?:hey|hi|hello|good morning|good afternoon|good evening|dear) [a-z]+(?: [a-z]+)?$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex SignoffShape = new(
+        @"^(?:thanks|thank you|thanks so much|thanks a lot|cheers|best|talk soon|see you (?:then|soon|tomorrow)|appreciate it)[.,!]?$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static string InferQuestion(string s) =>
+        s.EndsWith('.') && QuestionStart.IsMatch(s) ? s[..^1] + "?" : s;
+
+    private static string Professional(string text)
+    {
+        var sentences = CleanedSentences(text)
             .SelectMany(SplitRunOns)
-            .Select(SentenceCased));
+            .Select(SentenceCased)
+            .Select(InferQuestion)
+            .ToList();
+
+        string? greeting = null;
+        if (sentences.Count > 0)
+        {
+            var bare = sentences[0].EndsWith('.') ? sentences[0][..^1] : sentences[0];
+            if (bare.Split(' ').Length <= 4 && GreetingShape.IsMatch(bare))
+            {
+                var words = bare.Split(' ');
+                words[^1] = char.ToUpper(words[^1][0]) + words[^1][1..];
+                greeting = string.Join(' ', words) + ",";
+                sentences.RemoveAt(0);
+            }
+        }
+        string? signoff = null;
+        if (sentences.Count > 0 && sentences[^1].Split(' ').Length <= 4 && SignoffShape.IsMatch(sentences[^1]))
+        {
+            signoff = sentences[^1];
+            sentences.RemoveAt(sentences.Count - 1);
+        }
+
+        var paras = new List<string>();
+        if (sentences.Count <= 3)
+        {
+            if (sentences.Count > 0) paras.Add(string.Join(' ', sentences));
+        }
+        else
+        {
+            for (var i = 0; i < sentences.Count; i += 3)
+                paras.Add(string.Join(' ', sentences.Skip(i).Take(3)));
+        }
+
+        var output = new List<string>();
+        if (greeting != null) output.Add(greeting);
+        output.AddRange(paras);
+        if (signoff != null) output.Add(signoff);
+        return string.Join("\n\n", output);
+    }
 
     /// Summarize: structure without condensing. Enumeration leads become a
     /// dashed list, topic shifts start a new paragraph. Nothing is dropped.
     private static string Summarize(string text)
     {
         var listLead = new Regex(
-            @"^(?:first(?:ly)?|second(?:ly)?|third(?:ly)?|then|next|also|finally|lastly|on top of that|number \w+)[,]?\s+",
+            @"^(?:first(?:ly)?|second(?:ly)?|third(?:ly)?|then|next|also|finally|lastly|on top of that|(?:number|point|step) \w+)[,]?\s+",
             RegexOptions.IgnoreCase);
         var topicShift = new Regex(
-            @"^(?:anyway|separately|one more thing|oh and|on another note)[,]?\s+",
+            @"^(?:anyway|separately|one more thing|oh and|on another note|switching gears|next thing|the other thing|last thing|by the way|real quick|also wanted to)[,]?\s+",
             RegexOptions.IgnoreCase);
         // Short, self-contained commitments collect into an Action items block
         // at the end (v8.16). Long sentences with an action cue stay in place.
         var actionCue = new Regex(@"\b(?:need(?:s)? to|have to|remember to|don'?t forget|make sure to|todo|to-do)\b",
             RegexOptions.IgnoreCase);
+        // v8.21: decisions get the same treatment as actions.
+        var decisionCue = new Regex(@"\b(?:we decided|i decided|we agreed|let'?s go with|the plan is|we'?re going with|the decision is|going to go with)\b",
+            RegexOptions.IgnoreCase);
         var blocks = new List<string>();
         var para = new List<string>();
         var list = new List<string>();
         var actions = new List<string>();
+        var decisions = new List<string>();
         void FlushPara() { if (para.Count > 0) { blocks.Add(string.Join(' ', para)); para.Clear(); } }
         void FlushList() { if (list.Count > 0) { blocks.Add(string.Join('\n', list.Select(x => "- " + x))); list.Clear(); } }
         var sentences = CleanedSentences(text).SelectMany(SplitRunOns).ToList();
         foreach (var s in sentences)
         {
+            if (sentences.Count > 2 &&
+                s.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 20 &&
+                decisionCue.IsMatch(s))
+            {
+                decisions.Add(SentenceCased(s));
+                continue;
+            }
             if (sentences.Count > 2 &&
                 s.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 20 &&
                 actionCue.IsMatch(s))
@@ -306,6 +397,8 @@ internal static class LocalModes
             }
         }
         FlushList(); FlushPara();
+        if (decisions.Count > 0)
+            blocks.Add("Decisions\n" + string.Join('\n', decisions.Select(x => "- " + x)));
         if (actions.Count > 0)
             blocks.Add("Action items\n" + string.Join('\n', actions.Select(x => "- " + x)));
         return string.Join("\n\n", blocks);
@@ -325,9 +418,14 @@ internal static class LocalModes
             ("done", @"\b(?:should (?:return|show|display|pass|see|survive)|expect(?:ed)? to|so that|when (?:i|you|it)'?m?s? (?:done|finished))\b", 2),
             ("context", @"\b(?:error|stack trace|crash(?:es|ing)?|the bug|fails?|failing|broken)\b", 3),
             ("context", @"(?:\b(?:currently|right now|at the moment|today it)\b|[\w-]+\.(?:swift|ts|tsx|js|jsx|py|go|cs|rb|css|html|json|md)\b|/[\w./-]{3,})", 2),
-            ("goal", @"^(?:please\s+)?(?:add|fix|build|make|create|update|change|remove|delete|implement|wire|write|move|rename|refactor|redesign|set up|hook up|clean up)\b", 3),
+            ("goal", @"^(?:please\s+)?(?:add|fix|build|make|create|update|change|remove|delete|implement|wire|write|move|rename|refactor|redesign|set up|hook up|clean up|deploy|ship|migrate|port|convert|integrate|optimize|speed up|install|configure|test|style|animate|publish|upgrade|swap|replace|extract|split|merge|connect|automate)\b", 3),
             ("goal", @"\b(?:i (?:want|need) (?:you )?to|can you|we need to|the goal is|i'?m trying to)\b", 3),
             ("goal", @"\b(?:it should|it needs to|there should be)\b", 1.5),
+            // v8.21 additions (Mac parity): deadlines/budgets are constraints,
+            // attempts and current state are context, outcome shapes are done.
+            ("constraint", @"\b(?:has to stay|keep it under|no more than|at most|can'?t|cannot|instead of|rather than|without asking|asap|by (?:tonight|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|the demo|end of (?:day|week))|deadline)\b", 2),
+            ("done", @"\b(?:end result|final result|should end up|once it'?s|success (?:is|means)|i can tell it worked|at the end|the output should)\b", 2),
+            ("context", @"\b(?:i tried|we tried|last time|yesterday|the problem is|what'?s happening is|the repo|the branch|the pr|right now it)\b", 2),
         };
         try
         {
@@ -443,8 +541,18 @@ internal static class LocalModes
              "- What should happen on a failed, disputed, or refunded payment?"),
             (@"\b(?:login|log in|signup|sign up|auth|password|session)\b",
              "- Which users does this apply to, and what happens to existing sessions?"),
+            (@"\b(?:slow|laggy|lag|latency|speed up|performance|faster|quicker)\b",
+             "- What is the acceptable number, concretely: how fast is fast enough?"),
             (@"\b(?:deploy|release|ship it|rollout|roll out)\b",
              "- Is there a rollout order or migration involved, and is rollback required?"),
+            (@"\b(?:email|outreach|message to|reach out|follow up with)\b",
+             "- Who exactly is the recipient, what tone, and what is the one thing they should do after reading?"),
+            (@"\b(?:post|video|caption|tweet|blog|content)\b",
+             "- Which platform and audience is this for, and how long should it be?"),
+            (@"\b(?:report|export|csv|spreadsheet|analytics|dashboard)\b",
+             "- Which columns or metrics, over what time period, in what format?"),
+            (@"\b(?:test|tests|coverage)\b",
+             "- Which behaviors must be covered, and what counts as passing?"),
         };
         foreach (var (cue, question) in domains)
         {

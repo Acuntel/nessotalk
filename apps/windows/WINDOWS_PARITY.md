@@ -166,3 +166,14 @@ restart). Windows: port the race into WhisperTranscriber (cloud task + local
 task, first non-empty wins) and drag/resize into DictationOverlay
 (WS_THICKFRAME or manual hit-testing). Port order: race first (UX), overlay
 second.
+
+## 17. v8.21 smarter modes (PORTED, static-review only)
+LocalModes.cs mirrors the Mac v8.21 upgrades: expanded filler rules (trailing
+throwaways, function-word stutter doubles), 18 new unambiguous contractions,
+question-mark inference, greeting/sign-off on their own lines, 2-3 sentence
+paragraphing, Summarize Decisions block + wider list/topic cues, agent cue
+additions (goal verbs, deadline constraints, attempt context, outcome done),
+Expand's 6 new domains with performance ranked above report. NOT ported:
+the Settings keyword editor (Windows has no settings UI; mode-rules file
+editing still applies) and paste-time smart typography (needs a verified
+single paste point + foreground-app check on a real Windows box).
