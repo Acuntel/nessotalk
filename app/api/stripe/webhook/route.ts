@@ -57,27 +57,41 @@ export async function POST(req: Request) {
     { auth: { persistSession: false } }
   );
 
+  const customer = String(obj.customer ?? "");
+
+  // Access follows money, automatically and in both directions:
+  //   pay -> pro. payment fails or subscription lapses -> back to trial,
+  //   and since the 14 free days are long gone, that means the very next
+  //   license check refuses and the engine 402s. A recovered payment brings
+  //   them straight back. Brady's rule, verbatim: auto-remove anyone whose
+  //   payment does not go through.
+  const CUT = new Set(["customer.subscription.deleted", "invoice.payment_failed"]);
+  const RESTORE = new Set(["invoice.paid", "invoice.payment_succeeded"]);
+
   if (event.type === "checkout.session.completed") {
     // client_reference_id carries the Supabase user id (the Payment Link is
     // opened with it prefilled from the dashboard).
     const userId = String(obj.client_reference_id ?? "");
-    const customer = String(obj.customer ?? "");
     if (userId) {
       await db
         .from("profiles")
         .update({ plan: "pro", revoked: false, stripe_customer_id: customer || null })
         .eq("id", userId);
     }
-  }
-
-  if (event.type === "customer.subscription.deleted") {
-    const customer = String(obj.customer ?? "");
-    if (customer) {
+  } else if (event.type === "customer.subscription.updated") {
+    // Covers the in-between states without waiting for deletion: past_due /
+    // unpaid cut immediately, a subscription going active restores.
+    const status = String(obj.status ?? "");
+    if (customer && ["past_due", "unpaid", "canceled", "incomplete_expired"].includes(status)) {
       await db.from("profiles").update({ plan: "trial" }).eq("stripe_customer_id", customer);
+    } else if (customer && status === "active") {
+      await db.from("profiles").update({ plan: "pro" }).eq("stripe_customer_id", customer);
     }
+  } else if (CUT.has(event.type ?? "") && customer) {
+    await db.from("profiles").update({ plan: "trial" }).eq("stripe_customer_id", customer);
+  } else if (RESTORE.has(event.type ?? "") && customer) {
+    await db.from("profiles").update({ plan: "pro" }).eq("stripe_customer_id", customer);
   }
 
-  // Everything else (payment_failed retries etc.) is acknowledged and left
-  // to Stripe's own retry machinery; the deletion event is the final word.
   return NextResponse.json({ received: true });
 }
