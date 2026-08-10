@@ -177,3 +177,13 @@ Expand's 6 new domains with performance ranked above report. NOT ported:
 the Settings keyword editor (Windows has no settings UI; mode-rules file
 editing still applies) and paste-time smart typography (needs a verified
 single paste point + foreground-app check on a real Windows box).
+
+## 18. v8.22 multi-channel microphone (VERIFY ON WINDOWS)
+Mac bug: Apple's built-in mic array reports THREE channels, and
+AVAudioFormat(streamDescription:) returns nil above two channels, so every
+captured buffer was silently dropped and dictation looked like a dead mic.
+Fixed with an explicit discrete channel layout plus a channel-0 downmix.
+Windows uses NAudio/WASAPI, a different API, so it is NOT affected by this
+specific nil, BUT the same class of bug applies: confirm AudioRecorder
+handles a >2-channel capture device (WaveFormat.Channels > 2) by downmixing
+rather than assuming mono, and test on a machine with a mic array.
