@@ -187,3 +187,11 @@ Windows uses NAudio/WASAPI, a different API, so it is NOT affected by this
 specific nil, BUT the same class of bug applies: confirm AudioRecorder
 handles a >2-channel capture device (WaveFormat.Channels > 2) by downmixing
 rather than assuming mono, and test on a machine with a mic array.
+
+## 19. v8.23 code-only voice edits + calendar capitalization
+PORTED: CapitalizeCalendar (days/months, excluding May and March which are
+ordinary words more often than months) now runs in CleanedSentences, so every
+mode benefits. NOT PORTED: localCommandEdit, the code-only fallback for
+"clean this up" / "summarize this" / "make it uppercase" style voice edits
+when no AI transport answers. Windows has no command mode (Option+hotkey
+selection editing) yet; port command mode first, then this fallback with it.

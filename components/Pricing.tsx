@@ -6,7 +6,7 @@ const OURS = [
   "Our own speech engine, with your computer as an instant backup",
   "Five modes: Professional, Summarize, Normal, AI Agent, AI Extend",
   "Learns you: your usual mode per app becomes automatic",
-  "Edit any selected text by voice",
+  "Edit selected text by voice",
   "Custom dictionary, voice snippets, 100+ languages",
 ];
 

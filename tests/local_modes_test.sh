@@ -36,7 +36,7 @@ check "filler+money" professional \
 
 check "self-correction" professional \
   "we can start tuesday no wait wednesday" \
-  "wednesday" -- "tuesday"
+  "Wednesday" -- "Tuesday"
 
 check "question-mark" professional \
   "can you send me the updated file before five." \
@@ -92,7 +92,12 @@ check "agent-4-sections" agent \
 
 check "agent-deadline-constraint" agent \
   "ship the new landing page by friday, keep it under 200 kilobytes total" \
-  "Constraints" "by friday"
+  "Constraints" "under 200 kilobytes"
+
+# Days and months are capitalized everywhere (orthography, never rewording).
+check "calendar-caps" professional \
+  "lets meet tuesday or maybe september and we may ship it" \
+  "Tuesday" "September" "may ship" -- "may Ship"
 
 check "agent-new-goal-verbs" agent \
   "deploy the engine to the new host and migrate the config over" \
@@ -115,6 +120,30 @@ check "expand-done-question" expand \
 check "numbers-survive" agent \
   "raise the price to 4.99 and cap seats at 3, dont touch the 39 dollar annual plan" \
   "4.99" "3" "39"
+
+# ── Voice edits with no AI available (code-only command mode) ───────────────
+cmd() {  # cmd <name> <instruction> <selection> <expect-contains|EXPECT_NONE>
+  local name=$1 instr=$2 sel=$3 want=$4
+  local out; out=$(print -r -- "$sel" | "$BIN" --local-command "$instr" 2>/dev/null)
+  local rc=$?
+  if [[ $want == "EXPECT_NONE" ]]; then
+    if (( rc != 0 )); then PASS=$((PASS+1)); else
+      FAIL=$((FAIL+1)); print "FAIL [$name] should refuse, got: $out"
+    fi
+  elif [[ $out == *"$want"* ]]; then PASS=$((PASS+1)); else
+    FAIL=$((FAIL+1)); print "FAIL [$name] wanted '$want', got: $out"
+  fi
+}
+
+cmd "cmd-cleanup"    "clean this up"            "um so the the deploy went out and its fine" "deploy went out"
+cmd "cmd-grammar"    "fix the grammar"          "we was gonna ship it tuesday"               "Tuesday"
+cmd "cmd-uppercase"  "make it uppercase"        "ship it today"                              "SHIP IT TODAY"
+cmd "cmd-lowercase"  "make it lowercase"        "SHIP IT TODAY"                              "ship it today"
+cmd "cmd-summarize"  "summarize this"           "First, fix the bug. Then, ship it. Finally, tell the client." "- Fix the bug."
+cmd "cmd-brief"      "turn this into a brief"   "fix the login bug, dont touch signup"       "Goal"
+# Anything code cannot do faithfully must refuse rather than guess.
+cmd "cmd-refuses"    "change Tuesday to Friday" "we ship on Tuesday"                         EXPECT_NONE
+cmd "cmd-refuses-2"  "make it funnier"          "the deploy is done"                         EXPECT_NONE
 
 print ""
 print "===== $((PASS+FAIL)) checks: $PASS passed, $FAIL failed ====="

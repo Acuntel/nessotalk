@@ -191,9 +191,42 @@ internal static class LocalModes
         return t;
     }
 
+    // Days and months are always capitalized in written English, and whisper
+    // writes them lowercase mid-sentence. Orthography, not rewording, so it is
+    // safe in every mode including Professional. "May" and "March" are
+    // deliberately absent: ordinary words far more often than months in
+    // speech, and a wrong capital is worse than a missing one.
+    private static readonly Regex[] CalendarWords =
+    {
+        new(@"\bmonday\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\btuesday\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bwednesday\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bthursday\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bfriday\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bsaturday\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bsunday\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bjanuary\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bfebruary\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bapril\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bjune\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bjuly\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\baugust\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bseptember\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\boctober\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bnovember\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        new(@"\bdecember\b", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+    };
+
+    private static string CapitalizeCalendar(string s)
+    {
+        foreach (var rx in CalendarWords)
+            s = rx.Replace(s, m => char.ToUpper(m.Value[0]) + m.Value[1..].ToLowerInvariant());
+        return s;
+    }
+
     private static List<string> CleanedSentences(string text) =>
         SplitSentences(text)
-            .Select(s => FormatSpokenUnits(FixContractions(StripSpokenFiller(ResolveSelfCorrections(s)))))
+            .Select(s => CapitalizeCalendar(FormatSpokenUnits(FixContractions(StripSpokenFiller(ResolveSelfCorrections(s))))))
             .Where(s => s.Length > 0)
             .ToList();
 
