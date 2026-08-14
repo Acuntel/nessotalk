@@ -10,9 +10,10 @@ import { accessFor } from "@/lib/access";
 // as well as losing the AI features.
 export const dynamic = "force-dynamic";
 
+// Windows is withheld here too. That zip is readable C# source under an MIT
+// licence, so handing it to a customer hands over the right to resell NessoTalk.
 const FILES: Record<string, string> = {
   mac: "nessotalk-mac-beta.zip",
-  windows: "nessotalk-windows-beta.zip",
 };
 
 export async function GET(req: Request) {
