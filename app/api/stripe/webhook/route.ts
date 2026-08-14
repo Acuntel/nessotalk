@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { adminDb } from "@/lib/db";
 import { createHmac, timingSafeEqual } from "crypto";
 
 // Stripe webhook: this is what makes give/take-away AUTOMATIC with money.
@@ -51,11 +51,7 @@ export async function POST(req: Request) {
   }
   const obj = event.data?.object ?? {};
 
-  const db = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
-  );
+  const db = adminDb();
 
   const customer = String(obj.customer ?? "");
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { adminDb } from "@/lib/db";
 
 // Server-side AI rewrite proxy. This is the part that CANNOT be stolen with the
 // app: Summarize / Professional / Agent / Expand / command-mode edits run here,
@@ -169,11 +169,7 @@ export async function POST(req: Request) {
   if (!text.trim()) return NextResponse.json({ error: "empty" }, { status: 400 });
   if (text.length > 60_000) return NextResponse.json({ error: "too_long" }, { status: 413 });
 
-  const db = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
-  );
+  const db = adminDb();
   const { data: p } = await db
     .from("profiles")
     .select("plan, trial_ends_at, revoked")

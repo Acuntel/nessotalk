@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import AdmZip from "adm-zip";
 import path from "path";
 import { accessFor } from "@/lib/access";
+import { adminDb } from "@/lib/db";
 
 // In-app updates. `ptt update` sends its license key as a header and gets the
 // current build back, personalized the same way the first download was. An
@@ -26,11 +26,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "bad_key" }, { status: 401 });
   }
 
-  const db = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
-  );
+  const db = adminDb();
   const { data: p } = await db
     .from("profiles")
     .select("plan, trial_ends_at, revoked")

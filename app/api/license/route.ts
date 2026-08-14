@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { createPrivateKey, sign } from "crypto";
 import { accessFor } from "@/lib/access";
+import { adminDb } from "@/lib/db";
 
 // Lease check-in. Desktop apps POST {key, machine} on launch and every ~12h.
 //
@@ -17,13 +17,7 @@ export const dynamic = "force-dynamic";
 // Bump when a new build is published to assets/downloads.
 const LATEST_VERSION = "8.24";
 
-function admin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
-  );
-}
+
 
 function signed(payload: Record<string, unknown>) {
   const body = JSON.stringify(payload);
@@ -55,7 +49,7 @@ export async function POST(req: Request) {
   }
   if (!/^[0-9a-f-]{36}$/i.test(key)) return deny("bad_key");
 
-  const db = admin();
+  const db = adminDb();
   const { data: p } = await db
     .from("profiles")
     .select("plan, trial_ends_at, revoked, seat_limit")

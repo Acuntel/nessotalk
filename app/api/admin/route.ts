@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { adminDb } from "@/lib/db";
 
 // Admin API. There is exactly ONE admin: Brady. Everyone else is a normal
 // Nesso account and gets a 403 here no matter what they try.
@@ -12,11 +12,7 @@ import { createClient } from "@supabase/supabase-js";
 export const dynamic = "force-dynamic";
 
 function service() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
-  );
+  return adminDb();
 }
 
 async function adminEmail(req: Request): Promise<string | null> {
