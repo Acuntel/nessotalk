@@ -18,8 +18,8 @@ const STEPS = [
     icon: ShieldCheck,
     title: "Run the installer",
     time: "1 minute",
-    body: "Unzip the file, then double-click install.sh on Mac or setup.ps1 on Windows. It sets everything up and tells you when it's done.",
-    hint: "On Mac you may need to right-click and choose Open the first time.",
+    body: "Unzip the file, then double-click Install NessoTalk. It sets everything up and tells you when it is done.",
+    hint: "macOS will say it cannot verify the app, because NessoTalk is not yet notarized by Apple. Open System Settings, go to Privacy and Security, scroll to the bottom, and click Open Anyway. Right-clicking and choosing Open no longer works on macOS 15 and later.",
   },
   {
     icon: Mic,
@@ -95,18 +95,6 @@ export default function Walkthrough({ paid }: { paid: boolean }) {
                 }`}
               >
                  Mac
-              </a>
-              <a
-                href={paid ? "/api/download?platform=windows" : undefined}
-                onClick={paid ? next : undefined}
-                aria-disabled={!paid}
-                className={`rounded-xl py-3 text-center text-sm font-semibold transition ${
-                  paid
-                    ? "bg-ink text-paper hover:bg-rosedeep"
-                    : "pointer-events-none bg-ink/10 text-muted"
-                }`}
-              >
-                ⊞ Windows
               </a>
             </div>
           )}

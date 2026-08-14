@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import AdmZip from "adm-zip";
 import path from "path";
+import { accessFor } from "@/lib/access";
 
 // Auth-gated, personalized download.
 //
@@ -14,9 +15,11 @@ import path from "path";
 // to anyone with the URL, which would defeat this entire route.
 export const dynamic = "force-dynamic";
 
+// Windows is withheld here for the same reason it is withheld from the public
+// route: that zip is readable C# source under an MIT licence, so shipping it to
+// a paying customer gives away the right to resell the product.
 const FILES: Record<string, string> = {
   mac: "nessotalk-mac-beta.zip",
-  windows: "nessotalk-windows-beta.zip",
 };
 
 export async function GET(req: Request) {
@@ -35,21 +38,19 @@ export async function GET(req: Request) {
     .select("license_key, plan, trial_ends_at, revoked")
     .eq("id", user.id)
     .single();
-  if (!profile || profile.revoked) {
-    return NextResponse.json({ error: "inactive" }, { status: 402 });
-  }
   // A live trial gets the real build. "Fourteen days free" has to mean a
-  // working app, or the promise on the pricing card is not true. Gating this
-  // behind checkout dead-ended every new signup: the public zip carries no
-  // key, so a trial user had no path to a copy that could record.
+  // working app, or the promise on the pricing card is not true.
   //
   // Access still ends on its own: an expired trial 402s here, the license
-  // check refuses, and the engine stops transcribing.
-  const trialLive = profile.trial_ends_at
-    ? new Date(profile.trial_ends_at).getTime() > Date.now()
-    : false;
-  if (profile.plan === "trial" && !trialLive) {
-    return NextResponse.json({ error: "subscribe_required" }, { status: 402 });
+  // check refuses, and the engine stops transcribing. Shared with /api/update
+  // so the two can never drift apart again.
+  if (!profile) {
+    return NextResponse.json({ error: "unknown" }, { status: 402 });
+  }
+  const verdict = accessFor(profile);
+  if (!verdict.ok) {
+    const error = verdict.reason === "expired" ? "subscribe_required" : verdict.reason;
+    return NextResponse.json({ error }, { status: 402 });
   }
 
   const zip = new AdmZip(path.join(process.cwd(), "assets", "downloads", file));

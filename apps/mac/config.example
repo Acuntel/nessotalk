@@ -4,7 +4,9 @@ MAX_RECORD_SECONDS=2700
 LIVE_CAPTIONS=1
 CAPTION_INTERVAL=2.0
 CAPTION_WINDOW=10
-CAPTION_MODEL=/Users/bradyschwartz/.whisper-models/ggml-base.en-q5_1.bin
+# Tilde only. An absolute path here points at ONE person's home folder and is
+# wrong on every other Mac, which silently disables live captions.
+CAPTION_MODEL=~/.whisper-models/ggml-base.en-q5_1.bin
 # Which mic to record from: builtin | default | <substring of a device name>.
 # "builtin" pins to the Mac's own mic so dictation never rides Bluetooth (AirPods).
 INPUT_DEVICE=builtin
@@ -15,9 +17,10 @@ CALL_MODE=0
 # Rolling transcription: pre-transcribe finished audio every ~N seconds while
 # still recording, so long dictations paste in seconds. <20 disables.
 CHUNK_SECONDS=30
-# Resident whisper-server for near-instant pastes (auto-fallback to CLI). 0 disables.
-# After tuning VAD_THRESHOLD, run `ptt server sync`.
-SERVER=1
+# Resident local whisper-server. OFF for customer builds: transcription runs on
+# the NessoTalk engine, and there is no local decode model to serve. Turning this
+# on without a local model costs a failed spawn on every dictation.
+SERVER=0
 # AI prompt-polish: rewrites dictation into a structured prompt when pasting
 # into an AI app. Say "verbatim" first to skip once. POLISH=0 disables.
 POLISH=1
@@ -32,8 +35,10 @@ POLISH_ASK_TIMEOUT=30
 # Claude model for the Summarize rewrite. sonnet-5 = detail-preserving expansion;
 # claude-haiku-4-5 = faster/lighter if polish ever feels too slow.
 POLISH_MODEL=claude-sonnet-5
-# Speculative tail: decode during the pause before the stop tap. 0 disables.
-SPECULATIVE=1
+# Speculative tail: decode during the pause before the stop tap. Off for customer
+# builds because it only pays off against a resident LOCAL decoder, and every
+# speculative pass would otherwise be one more billable engine request.
+SPECULATIVE=0
 # ==== NessoTalk v8.0 ====
 # Decode language: en, es, fr, ... or auto (detects, can switch mid-recording).
 # Live captions stay English (the caption model is English-only).

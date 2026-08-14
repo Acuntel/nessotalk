@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createPrivateKey, sign } from "crypto";
+import { accessFor } from "@/lib/access";
 
 // Lease check-in. Desktop apps POST {key, machine} on launch and every ~12h.
 //
@@ -14,7 +15,7 @@ import { createPrivateKey, sign } from "crypto";
 export const dynamic = "force-dynamic";
 
 // Bump when a new build is published to assets/downloads.
-const LATEST_VERSION = "8.23";
+const LATEST_VERSION = "8.24";
 
 function admin() {
   return createClient(
@@ -61,11 +62,16 @@ export async function POST(req: Request) {
     .eq("license_key", key)
     .maybeSingle();
 
+  // Shared allowlist, same rule as /api/download and /api/update.
   if (!p) return deny("unknown", key, machine);
-  if (p.revoked) return deny("revoked", key, machine);
+  const verdict = accessFor(p);
+  if (!verdict.ok) return deny(verdict.reason, key, machine);
 
-  const trialLive = p.trial_ends_at ? new Date(p.trial_ends_at).getTime() > Date.now() : false;
-  if (p.plan === "trial" && !trialLive) return deny("expired", key, machine);
+  // A blank machine id used to skip the seat block below entirely while still
+  // returning a signed valid:true, so one key could be shared without limit by
+  // simply omitting the field. The desktop and Windows clients both always send
+  // it, so requiring it costs nothing.
+  if (!machine) return deny("machine_required", key, machine);
 
   // Seat binding: a key works on up to seat_limit machines. Sharing it with a
   // crowd trips the cap, and every machine id is recorded either way.
@@ -108,8 +114,12 @@ export async function POST(req: Request) {
     valid: true,
     plan: p.plan,
     trial_ends_at: p.trial_ends_at,
-    // Token is good for 14 days offline; after that the app must check in again.
-    exp: Date.now() + 14 * 86_400_000,
+    // Offline grace. This was 14 days, which meant revoking someone could take
+    // two weeks to actually stop them on a machine that stayed offline. The
+    // whole product is "granted and revoked by us", so the window has to be
+    // short enough for that to be true. 24 hours still covers a flight or a
+    // weekend without internet.
+    exp: Date.now() + 86_400_000,
   };
   return NextResponse.json({
     valid: true,

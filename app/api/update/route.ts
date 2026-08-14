@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import AdmZip from "adm-zip";
 import path from "path";
+import { accessFor } from "@/lib/access";
 
 // In-app updates. `ptt update` sends its license key as a header and gets the
 // current build back, personalized the same way the first download was. An
@@ -31,12 +32,16 @@ export async function GET(req: Request) {
   );
   const { data: p } = await db
     .from("profiles")
-    .select("plan, revoked")
+    .select("plan, trial_ends_at, revoked")
     .eq("license_key", key)
     .maybeSingle();
 
-  if (!p || p.revoked || p.plan === "trial") {
-    return NextResponse.json({ error: "inactive" }, { status: 402 });
+  // Same rule as /api/download. These two used to disagree: download served a
+  // live trial and update refused it, so trial customers were frozen on
+  // whatever build they first installed.
+  const verdict = accessFor(p);
+  if (!verdict.ok) {
+    return NextResponse.json({ error: verdict.reason }, { status: 402 });
   }
 
   const zip = new AdmZip(path.join(process.cwd(), "assets", "downloads", file));

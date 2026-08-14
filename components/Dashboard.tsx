@@ -117,8 +117,8 @@ export default function Dashboard({
                 : "Subscribe to switch it back on"}
             </h2>
             <p className="mt-2 text-sm leading-6 text-muted">
-              $4.99 a month, or $39 a year. Founding price, locked for as long as
-              you stay subscribed. Cancel in one click, no conversation.
+              $4.99 a month. Founding price, locked for as long as you stay
+              subscribed. Cancel by email and it is handled the same day.
             </p>
             <button
               onClick={subscribe}

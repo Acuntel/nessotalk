@@ -59,17 +59,11 @@ export default function Hero() {
             >
                Download for Mac
             </a>
-            <a
-              href="/download/windows"
-              className="rounded-2xl bg-ink px-9 py-4 text-lg font-semibold text-paper transition hover:bg-rosedeep"
-            >
-              ⊞ Download for Windows
-            </a>
           </div>
           <p className="max-w-md text-sm leading-6 text-muted">
-            Free for fourteen days, then $4.99 a month. Cancel in one click. You
-            create a free account during setup to get your key, and no card is
-            needed to start.
+            Free for fourteen days, then $4.99 a month. No card is needed to start,
+            and you create a free account during setup to get your key. Cancel by
+            emailing Brady and it is handled the same day.
           </p>
         </motion.div>
       </div>

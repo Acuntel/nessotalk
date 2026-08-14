@@ -10,13 +10,13 @@ const display = Fraunces({
 const body = Inter({ subsets: ["latin"], variable: "--font-body" });
 
 export const metadata: Metadata = {
-  title: "NessoTalk: talk instead of type, on Mac and Windows",
+  title: "NessoTalk: talk instead of type, on your Mac",
   description:
-    "NessoTalk turns your voice into clean, polished text in any app on Mac or Windows. Our own speech engine, with your computer as an instant backup, five rewrite modes, and a third of the price of the big-name tools. 14 days free, no card.",
+    "NessoTalk turns your voice into clean, polished text in any app on your Mac. It runs on our own speech engine, with five rewrite modes, at a third of the price of the big-name tools. 14 days free, no card.",
   openGraph: {
     title: "NessoTalk",
     description:
-      "Voice dictation for Mac and Windows on NessoTalk's own speech engine. Speak anywhere, paste clean text in seconds. 14 days free, no card.",
+      "Voice dictation for Mac on NessoTalk's own speech engine. Speak anywhere, paste clean text in seconds. 14 days free, no card.",
     url: "https://nesso.tech",
     siteName: "NessoTalk",
   },

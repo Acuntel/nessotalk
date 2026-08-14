@@ -10,7 +10,7 @@ const POINTS = [
   {
     icon: MicOff,
     title: "Your voice goes to our engine and nowhere else",
-    body: "Your recording goes to NessoTalk's own speech engine over an encrypted connection, and to a copy of that engine on your own computer, at the same time. Whichever finishes first is what you get, so it still works on a plane. Nothing is stored, nothing is sold, and nothing is handed to a third-party AI company, because the engine is ours.",
+    body: "Your recording goes to NessoTalk's own speech engine over an encrypted connection, is turned into text, and is discarded in the same request. It never touches a disk on our side. Nothing is stored, nothing is sold, and nothing is handed to a third-party AI company, because the engine is ours and it runs on our own servers.",
   },
   {
     icon: UserRound,
@@ -19,8 +19,8 @@ const POINTS = [
   },
   {
     icon: CreditCard,
-    title: "Cancelling takes one click and no conversation",
-    body: "You are never charged during the fourteen day trial, and you can cancel from your own dashboard in one click with no retention flow.",
+    title: "Cancelling is one email and no conversation",
+    body: "You are never charged during the fourteen day trial. After that, one email cancels you the same day, with no retention flow and no questions. A self-serve cancel button is on the way.",
   },
 ];
 

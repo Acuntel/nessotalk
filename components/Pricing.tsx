@@ -2,8 +2,8 @@ import Link from "next/link";
 import { Check, X } from "lucide-react";
 
 const OURS = [
-  "Unlimited dictation on Mac and Windows",
-  "Our own speech engine, with your computer as an instant backup",
+  "Unlimited dictation on your Mac",
+  "Runs on our own speech engine, so nothing heavy sits on your computer",
   "Five modes: Professional, Summarize, Normal, AI Agent, AI Extend",
   "Learns you: your usual mode per app becomes automatic",
   "Edit selected text by voice",
@@ -44,7 +44,6 @@ export default function Pricing() {
           <div className="mt-2 font-display text-5xl text-ink">
             $4.99<span className="text-lg text-muted">/mo</span>
           </div>
-          <div className="mt-1 text-sm text-muted">or $39/year (35% off)</div>
           <ul className="mt-6 space-y-3 text-sm text-ink">
             {OURS.map((f) => (
               <li key={f} className="flex gap-2">
@@ -69,7 +68,7 @@ export default function Pricing() {
 const QA = [
   [
     "Is my audio really private?",
-    "Your recording goes two places at once: our own speech engine, over an encrypted connection, and a copy of the engine on your own computer. Whichever finishes first is what you get. We never store your audio, never sell it, and never hand it to a third-party AI company, because the engine is ours and it runs on our own servers.",
+    "Your recording goes over an encrypted connection to NessoTalk's own speech engine, is turned into text, and is discarded in the same request. It is never written to disk, never kept, never sold, and never handed to a third-party AI company, because the engine is ours and it runs on our own servers.",
   ],
   [
     "How is this different from Wispr Flow?",
@@ -77,15 +76,15 @@ const QA = [
   ],
   [
     "What do I need to run it?",
-    "Any modern Mac, or a Windows 11 PC. Setup takes about three minutes, and most of that is a one time download of the speech model that lets your computer keep transcribing when the internet drops. You grant microphone permission once, and that is the last setup step.",
+    "Any modern Mac, and an internet connection, because your words are transcribed on our engine rather than on your computer. Setup takes about a minute now that there is no large model to download. You grant microphone permission once, and that is the last setup step. Windows is in progress and is not released yet.",
   ],
   [
     "What happens after the 14-day trial?",
-    "Your trial starts the moment you create an account, no card needed. When it ends you can subscribe for $4.99/mo or $39/yr. Founding-member pricing is locked for as long as you stay subscribed.",
+    "Your trial starts the moment you create an account, and no card is needed. When it ends you can subscribe for $4.99 a month. Founding-member pricing is locked for as long as you stay subscribed.",
   ],
   [
     "Can I cancel anytime?",
-    "Yes, one click from your dashboard. No calls, no retention flows, no guilt trips.",
+    "Yes. Email Brady and your subscription is cancelled the same day, with no calls and no retention flow. A self-serve cancel button is being built and is not live yet.",
   ],
 ];
 

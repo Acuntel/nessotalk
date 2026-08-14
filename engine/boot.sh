@@ -36,17 +36,51 @@ fetch "nessotalk-vad-v1.bin"
 # The first deploy omitted them and shipped noticeably worse transcripts —
 # this block must stay in lockstep with `ptt server sync`. Do not add flags
 # the local plist does not carry: an unaccepted launch flag kills the server.
-whisper-server \
-  -m "$MODEL_DIR/nessotalk-engine-${MODEL_TAG#engine-}-q5_0.bin" \
-  --host 127.0.0.1 --port 8977 -t "${WHISPER_THREADS:-8}" \
-  -nt -l "${ENGINE_LANGUAGE:-en}" \
-  -mc 128 -et 2.8 -bs 5 -bo 5 \
-  --carry-initial-prompt \
-  --vad -vm "$MODEL_DIR/nessotalk-vad-v1.bin" -vt "${VAD_THRESHOLD:-0.15}" &
+start_decoder() {
+  whisper-server \
+    -m "$MODEL_DIR/nessotalk-engine-${MODEL_TAG#engine-}-q5_0.bin" \
+    --host 127.0.0.1 --port 8977 -t "${WHISPER_THREADS:-8}" \
+    -nt -l "${ENGINE_LANGUAGE:-en}" \
+    -mc 128 -et 2.8 -bs 5 -bo 5 \
+    --carry-initial-prompt \
+    --vad -vm "$MODEL_DIR/nessotalk-vad-v1.bin" -vt "${VAD_THRESHOLD:-0.15}" &
+  DECODER_PID=$!
+}
+
+start_decoder
 
 for _ in $(seq 1 180); do
   curl -fsS -o /dev/null "http://127.0.0.1:8977/" 2>/dev/null && break
   sleep 1
 done
+
+# If the decoder never came up, exit non-zero so the platform restarts the whole
+# container. Staying alive here would serve a gate that can only ever 502.
+if ! curl -fsS -o /dev/null "http://127.0.0.1:8977/" 2>/dev/null; then
+  echo "engine: decoder never answered after 180s, exiting so the platform restarts us" >&2
+  exit 1
+fi
+
+# Supervise it. Nothing used to restart whisper-server if it died mid-flight:
+# the gate stayed up as PID 1, so the container looked healthy while every
+# transcription returned 502 forever. /health now reports 503 in that state as
+# well, but a supervisor means most deaths are repaired before anyone notices.
+supervise_decoder() {
+  while true; do
+    sleep 15
+    if ! kill -0 "$DECODER_PID" 2>/dev/null; then
+      echo "engine: decoder process died, restarting it" >&2
+      start_decoder
+      continue
+    fi
+    if ! curl -fsS -o /dev/null --max-time 10 "http://127.0.0.1:8977/" 2>/dev/null; then
+      echo "engine: decoder stopped answering, cycling it" >&2
+      kill -9 "$DECODER_PID" 2>/dev/null || true
+      sleep 2
+      start_decoder
+    fi
+  done
+}
+supervise_decoder &
 
 exec uvicorn gate:app --host 0.0.0.0 --port "${PORT:-8080}"

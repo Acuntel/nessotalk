@@ -5,3 +5,6 @@ node_modules
 *.tsbuildinfo
 .DS_Store
 .env*
+engine/__pycache__/
+AD_MASTER_PROMPT.md
+AGENT_MODE_CLIENT_SPEC.md

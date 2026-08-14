@@ -27,40 +27,57 @@ cat <<'BANNER'
   NessoTalk
   Talk instead of typing, in any app on your Mac.
 
-  This installer takes about three minutes. Most of that is a one time
-  download of the speech model. You can leave it running and come back.
+  This installer takes about a minute. Your words are transcribed on the
+  NessoTalk engine, so there is no large model to download and nothing
+  heavy to keep on your Mac.
 BANNER
 
-say_dialog "NessoTalk Setup" "Welcome. This takes about three minutes, and most of it is one download that happens by itself.\n\nAt the end your Mac will ask for two permissions. Both are required: one lets NessoTalk hear you, the other lets it type for you.\n\nClick Continue to begin."
+say_dialog "NessoTalk Setup" "Welcome. This takes about a minute.\n\nAt the end your Mac will ask for two permissions. Both are required: one lets NessoTalk hear you, the other lets it type for you.\n\nClick Continue to begin."
 
-step 1 "Checking the tools NessoTalk needs."
-if ! command -v brew >/dev/null; then
-  echo "    Homebrew is missing. It is a free installer that Apple does not"
-  echo "    include, and NessoTalk uses it to fetch the speech engine."
-  say_dialog "One thing is missing" "NessoTalk needs Homebrew, a free tool that installs software on a Mac.\n\nYour browser will now open to brew.sh. Follow the one line of instructions there, then run this installer again."
-  open "https://brew.sh"
-  exit 1
+step 1 "Checking the two small helpers NessoTalk uses."
+# Transcription happens on the NessoTalk engine. These two are only used for
+# cleaning up the audio before it is sent and for the on-screen live captions,
+# so a missing Homebrew is a downgrade, never a hard stop.
+if command -v brew >/dev/null; then
+  brew list ffmpeg      >/dev/null 2>&1 || brew install ffmpeg      || true
+  brew list whisper-cpp >/dev/null 2>&1 || brew install whisper-cpp || true
+  echo "    Done."
+else
+  echo "    Homebrew is not installed, so live captions and audio cleanup will"
+  echo "    be switched off. Dictation itself works without them. You can install"
+  echo "    Homebrew from brew.sh later and re-run this installer to turn them on."
 fi
-brew list whisper-cpp >/dev/null 2>&1 || brew install whisper-cpp
-brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
-echo "    Done. The speech engine is installed."
 
-step 2 "Downloading the speech model, about 600 MB, one time only."
-echo "    This is the part that takes a few minutes. Nothing is required from you."
+step 2 "Setting up live captions."
+# ONLY the small English caption model, about 60 MB, and only so the pill can
+# show words as you speak. The model that produces your actual transcript runs
+# on the NessoTalk engine and is never copied to a customer machine: that is
+# what makes a subscription something we can grant and take away.
 mkdir -p "$HOME/.whisper-models"
 BASE="https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
-[ -f "$HOME/.whisper-models/ggml-large-v3-turbo-q5_0.bin" ] || curl -# -L -o "$HOME/.whisper-models/ggml-large-v3-turbo-q5_0.bin" "$BASE/ggml-large-v3-turbo-q5_0.bin"
-[ -f "$HOME/.whisper-models/ggml-base.en-q5_1.bin" ] || curl -# -L -o "$HOME/.whisper-models/ggml-base.en-q5_1.bin" "$BASE/ggml-base.en-q5_1.bin"
-[ -f "$HOME/.whisper-models/ggml-silero-v5.1.2.bin" ] || curl -# -L -o "$HOME/.whisper-models/ggml-silero-v5.1.2.bin" "$BASE/ggml-silero-v5.1.2.bin"
-echo "    Done. NessoTalk transcribes on our engine and on this Mac at the"
-echo "    same time, and uses whichever answers first, so dictation keeps"
-echo "    working even with no internet."
+fetch_small() { # filename
+  [ -s "$HOME/.whisper-models/$1" ] && return 0
+  curl -fsS -# -L -o "$HOME/.whisper-models/$1.part" "$BASE/$1" \
+    && mv "$HOME/.whisper-models/$1.part" "$HOME/.whisper-models/$1" \
+    || { rm -f "$HOME/.whisper-models/$1.part"; echo "    Could not fetch $1. Live captions will stay off; dictation is unaffected."; }
+}
+fetch_small ggml-base.en-q5_1.bin
+fetch_small ggml-silero-v5.1.2.bin
+echo "    Done. Your transcript is produced on the NessoTalk engine, which is"
+echo "    why there is no multi-gigabyte model sitting on your Mac."
 
 step 3 "Installing NessoTalk and activating your license."
 mkdir -p "$DIR"
 cp -f ptt Info.plist "$DIR/"
 rm -rf "$DIR/PttDictate.app"
 cp -R PttDictate.app "$DIR/"
+# Anything downloaded through a browser carries com.apple.quarantine, and a
+# quarantined app that is not notarized does not launch: it hangs with no error
+# and macOS offers the customer a "Move to Trash" button. The customer ran this
+# installer deliberately, which is exactly the consent Gatekeeper is asking about,
+# so clear the flag on the copy we just installed.
+xattr -dr com.apple.quarantine "$DIR/PttDictate.app" 2>/dev/null || true
+xattr -dr com.apple.quarantine "$DIR/ptt" 2>/dev/null || true
 [ -f "$DIR/snippets" ] || cp -f snippets.example "$DIR/snippets"
 [ -f "$DIR/config" ] || cp -f config.example "$DIR/config"
 if [ -n "$KEY" ]; then
@@ -73,6 +90,9 @@ else
   say_dialog "One thing left: your key" "NessoTalk is installing now, and it needs a license key before it can record. Getting one is free and takes about a minute.\n\n1. Go to nesso.tech and create your account. Fourteen days free, no card.\n2. Copy the license key shown on your dashboard.\n3. Open NessoTalk from the menu bar, choose Settings, paste the key into \\\"Your license key\\\", and click Save.\n\nThat is it. You can also grab a copy from your dashboard with the key already inside."
 fi
 chmod +x "$DIR/ptt"
+# The config holds the license key, so it is the user's alone to read. The daemon
+# already writes its log and history 0600; the config had been left 0644.
+chmod 600 "$DIR/config" 2>/dev/null || true
 
 PLIST="$HOME/Library/LaunchAgents/com.brady.ptt-dictate.plist"
 cat > "$PLIST" <<EOF
