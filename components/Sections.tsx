@@ -5,10 +5,15 @@ export function ProofBar() {
     <div className="border-y border-line bg-card/50">
       <div className="mx-auto grid max-w-6xl grid-cols-2 gap-6 px-5 py-8 text-center sm:grid-cols-4">
         {[
-          ["~2s", "from stop tap to pasted text"],
+          // Every number here has to be one we can point at. The old "~2s paste"
+          // was delivered by a copy of the engine running on the customer's own
+          // computer, and that copy is gone on purpose: transcription happens on
+          // our engine so access is something we grant and revoke. Put a speed
+          // claim back only when the engine's own measured time earns it.
           ["5", "rewrite modes, one per kind of writing"],
           ["3x", "cheaper than the big-name tool"],
-          ["0", "dictations lost when the internet drops"],
+          ["0", "recordings kept, ever, on any disk"],
+          ["14", "days free, and no card to start"],
         ].map(([n, l]) => (
           <div key={l}>
             <div className="font-display text-3xl text-ink">{n}</div>
