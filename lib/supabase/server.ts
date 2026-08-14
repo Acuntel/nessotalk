@@ -9,6 +9,14 @@ export function supabaseServer() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // Same reason as lib/db.ts: Next.js caches GET responses made through the
+      // global fetch, and supabase-js reads through it. /api/download decides
+      // access from a profiles row read with this client, so a cached row would
+      // keep serving builds to someone whose access had already been taken away.
+      global: {
+        fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+          fetch(input, { ...init, cache: "no-store" }),
+      },
       cookies: {
         getAll: () => store.getAll(),
         setAll: (all: CookieRow[]) => {
