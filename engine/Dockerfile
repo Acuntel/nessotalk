@@ -24,7 +24,12 @@
 FROM ghcr.io/mudler/parakeet.cpp-server:v0.5.0 AS parakeet
 
 # --- whisper: the decode stack the desktop app proved over a year ---
-FROM debian:bookworm-slim AS build
+# trixie, not bookworm: the parakeet binary below needs glibc 2.38 and
+# GLIBCXX_3.4.32, and bookworm ships glibc 2.36. The first deploy of this file
+# used bookworm and parakeet-server died on every start with "GLIBC_2.38 not
+# found" while whisper quietly served everything, which is exactly what the
+# fallback is for but not what we wanted.
+FROM debian:trixie-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -33,7 +38,7 @@ WORKDIR /src
 RUN cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
     && cmake --build build --config Release -j --target whisper-server
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip curl ca-certificates libgomp1 \
     && rm -rf /var/lib/apt/lists/* \

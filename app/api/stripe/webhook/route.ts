@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bad_signature" }, { status: 400 });
   }
 
-  let event: { type?: string; data?: { object?: Record<string, unknown> } };
+  let event: { id?: string; type?: string; data?: { object?: Record<string, unknown> } };
   try {
     event = JSON.parse(body);
   } catch {
@@ -52,6 +52,23 @@ export async function POST(req: Request) {
   const obj = event.data?.object ?? {};
 
   const db = adminDb();
+
+  // Idempotency. Stripe retries on any non-2xx and will happily deliver the
+  // same event several times, out of order, for up to three days. Without this,
+  // a replayed `invoice.paid` arriving after a cancellation would resurrect a
+  // subscription that had already ended.
+  //
+  // Claiming the id BEFORE doing the work is the whole trick: the primary key
+  // makes the insert fail for anyone who is second, so exactly one delivery can
+  // proceed. Returning 200 on the duplicate is deliberate, because a non-2xx
+  // would make Stripe retry the thing we just told it we already handled.
+  const eventId = String(event.id ?? "");
+  if (eventId) {
+    const { error } = await db
+      .from("processed_events")
+      .insert({ event_id: eventId, event_type: event.type ?? null });
+    if (error) return NextResponse.json({ received: true, duplicate: true });
+  }
 
   const customer = String(obj.customer ?? "");
 
