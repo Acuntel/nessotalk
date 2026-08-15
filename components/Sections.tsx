@@ -5,11 +5,15 @@ export function ProofBar() {
     <div className="border-y border-line bg-card/50">
       <div className="mx-auto grid max-w-6xl grid-cols-2 gap-6 px-5 py-8 text-center sm:grid-cols-4">
         {[
-          // Every number here has to be one we can point at. The speed figure is
-          // the measured round trip from a real Mac to the engine and back on a
-          // short dictation: 3.0s, 3.0s, 2.9s on 2026-08-14, against 16.7s before
-          // the encoder window was sized per request. Re-measure before changing it.
-          ["~3s", "from stop tap to text, on our engine"],
+          // Every number here has to be one we can point at. Measured round trip
+          // from a real Mac to the engine and back on a short dictation:
+          //   2026-08-14  16.7s   whisper, full 30s encoder window every request
+          //   2026-08-14   3.0s   whisper, encoder window sized per request
+          //   2026-08-15   0.47s, 0.61s, 0.59s   parakeet
+          // Claimed as "about a second" rather than the raw 0.5s, because the
+          // customer also pays for audio conditioning and the paste itself, and
+          // that part has not been measured end to end. Re-measure before changing.
+          ["~1s", "from stop tap to text, on our engine"],
           ["5", "rewrite modes, one per kind of writing"],
           ["3x", "cheaper than the big-name tool"],
           ["0", "recordings kept, ever, on any disk"],
