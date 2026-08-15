@@ -79,10 +79,15 @@ export async function POST(req: Request) {
 
   let userId = "";
   let action = "";
+  let platform = "";
   try {
     const body = await req.json();
     userId = String(body.user_id ?? "");
     action = String(body.action ?? "");
+    // Read every field in ONE pass. A Request body can only be consumed once,
+    // so calling req.clone() after req.json() throws, which silently turned the
+    // unbind into an empty 500 the first time this shipped.
+    platform = String(body.platform ?? "").trim().toLowerCase();
   } catch {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
@@ -107,9 +112,6 @@ export async function POST(req: Request) {
     if (!p?.license_key) {
       return NextResponse.json({ error: "no_license" }, { status: 400 });
     }
-    const platform = String(
-      (await req.clone().json().catch(() => ({}))).platform ?? ""
-    ).trim().toLowerCase();
     let q = db.from("machines").delete().eq("license_key", p.license_key);
     // Optional platform lets you free just the Mac seat without touching Windows.
     if (["mac", "windows", "ios"].includes(platform)) q = q.eq("platform", platform);
