@@ -23,6 +23,30 @@ from starlette.formparsers import MultiPartParser
 
 LICENSE_URL = os.environ.get("LICENSE_URL", "https://nesso.tech/api/license")
 DECODER = "http://127.0.0.1:8977/inference"
+PARAKEET = "http://127.0.0.1:8978/v1/audio/transcriptions"
+
+# Parakeet is the primary decoder for the languages it covers. Measured CPU to
+# CPU on identical hardware at 4 threads: a 4.4s clip took 18.20s on whisper and
+# 0.85s on parakeet; a 35.5s clip took 37.69s and 8.84s; four concurrent short
+# clips took 13s and 3.49s. It also has no 30-second encoder window, so it keeps
+# spans whisper drops at the boundary (our test clip loses the phrase "and it
+# absolutely cannot require anyone" on whisper and keeps it on parakeet).
+#
+# Whisper stays for everything else. Parakeet v3 covers 25 languages against
+# whisper's 99, and it has NO language input at all: on speech outside its set it
+# can silently translate into English instead of transcribing. So the router is
+# an ALLOWLIST. Anything not on this list goes to whisper, which is the safe
+# direction: worst case is the old, slower, correct behaviour.
+#
+# Verified before shipping: Spanish transcribes as Spanish on parakeet, it does
+# not come back translated.
+PARAKEET_LANGS = {
+    "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu",
+    "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
+}
+# ENGINE=whisper routes everything back to whisper with no code change and no
+# client update. This is the kill switch; reach for it first if quality regresses.
+ENGINE = os.environ.get("ENGINE", "auto").strip().lower()
 
 # 32 MB is ~16 minutes of 16 kHz mono s16. The desktop client cuts a new chunk
 # every 30 seconds, so a real request is about 1 MB and nothing legitimate comes
@@ -157,9 +181,20 @@ async def health():
         decoder = r.status_code == 200
     except httpx.HTTPError:
         decoder = False
+    # Parakeet is reported but is NOT part of the health verdict. Whisper alone
+    # can serve every language, so a dead parakeet is a slowdown rather than an
+    # outage, and failing health here would restart a container that still works.
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            p = await c.post(PARAKEET, files={"file": ("probe.wav", b"", "audio/wav")})
+        parakeet = p.status_code in (200, 400, 422)
+    except httpx.HTTPError:
+        parakeet = False
     body = {
         "ok": decoder,
         "decoder": decoder,
+        "parakeet": parakeet,
+        "routing": "whisper-only" if ENGINE == "whisper" else "parakeet-first",
         "model": os.environ.get("MODEL_TAG", "engine-v1"),
     }
     return JSONResponse(body, status_code=200 if decoder else 503)
@@ -193,10 +228,23 @@ async def transcribe(
     if len(audio) > MAX_BYTES:
         raise HTTPException(status_code=413, detail="too_large")
 
+    lang = (language or "en").strip().lower()[:2]
+    filename = file.filename or "audio.wav"
+
+    # Route. Parakeet first when it covers the language, whisper otherwise, and
+    # whisper again if parakeet fails for any reason. A decode is never lost to
+    # a routing decision.
+    if ENGINE != "whisper" and lang in PARAKEET_LANGS:
+        text = await try_parakeet(audio, filename)
+        if text is not None:
+            return {"text": text}
+        # Falling through is deliberate and silent to the customer: they get a
+        # slower correct answer instead of an error.
+
     # Per-request vad/prompt/language/audio_ctx are the knobs whisper-server
     # honors at request time (VAD threshold is fixed at launch, same as the
     # desktop daemon's resident server).
-    data = {"response_format": "json", "vad": "true", "language": language}
+    data = {"response_format": "json", "vad": "true", "language": lang}
     if prompt:
         data["prompt"] = prompt
     ctx = audio_ctx_for(wav_duration_seconds(audio))
@@ -208,7 +256,7 @@ async def transcribe(
             r = await c.post(
                 DECODER,
                 data=data,
-                files={"file": (file.filename or "audio.wav", audio, "audio/wav")},
+                files={"file": (filename, audio, "audio/wav")},
             )
     except httpx.HTTPError:
         raise HTTPException(status_code=502, detail="decoder_down")
@@ -216,6 +264,30 @@ async def transcribe(
         raise HTTPException(status_code=502, detail="decoder")
     text = (r.json().get("text") or "").strip()
     return {"text": text}
+
+
+async def try_parakeet(audio: bytes, filename: str) -> str | None:
+    """Returns the transcript, or None so the caller falls back to whisper.
+
+    Parakeet takes no prompt and no audio_ctx. It has no fixed encoder window,
+    so there is nothing to size, and no initial-prompt input, so the desktop's
+    vocabulary prompt does not apply here. The client's own learned-word regex
+    pass still runs after the transcript comes back, and that is unaffected.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=600) as c:
+            r = await c.post(
+                PARAKEET,
+                files={"file": (filename, audio, "audio/wav")},
+            )
+        if r.status_code != 200:
+            return None
+        text = (r.json().get("text") or "").strip()
+        # An empty transcript is not proof of silence, so let whisper confirm it
+        # rather than handing the customer nothing.
+        return text or None
+    except (httpx.HTTPError, ValueError):
+        return None
 
 
 @app.middleware("http")

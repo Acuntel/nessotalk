@@ -28,6 +28,19 @@ fetch() {
 fetch "nessotalk-engine-${MODEL_TAG#engine-}-q5_0.bin"
 fetch "nessotalk-vad-v1.bin"
 
+# Parakeet weights are public (CC-BY-4.0) so they need no token, but they are
+# still only ever reachable through the licence gate: the decoder binds to
+# localhost and gate.py is the sole public surface. Attribution lives on the
+# site's acknowledgements page.
+PARAKEET_MODEL="${PARAKEET_MODEL:-tdt-0.6b-v3-q8_0.gguf}"
+if [ ! -s "$MODEL_DIR/$PARAKEET_MODEL" ]; then
+  echo "engine: fetching $PARAKEET_MODEL"
+  curl -fsSL -o "$MODEL_DIR/$PARAKEET_MODEL.part" \
+    "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/$PARAKEET_MODEL" \
+    && mv "$MODEL_DIR/$PARAKEET_MODEL.part" "$MODEL_DIR/$PARAKEET_MODEL" \
+    || { rm -f "$MODEL_DIR/$PARAKEET_MODEL.part"; echo "engine: parakeet fetch FAILED, whisper will serve everything" >&2; }
+fi
+
 # Resident decoder on localhost only. The gate below is the only public
 # surface, so an unlicensed request never reaches the model at all.
 #
@@ -48,6 +61,20 @@ start_decoder() {
 }
 
 start_decoder
+
+# Parakeet is the primary decoder for the languages it covers. If it cannot
+# start we do NOT fail the container: gate.py falls back to whisper for every
+# request, which is exactly the behaviour we had before it existed.
+PARAKEET_PID=""
+start_parakeet() {
+  [ -s "$MODEL_DIR/$PARAKEET_MODEL" ] || return 0
+  parakeet-server \
+    --model "$MODEL_DIR/$PARAKEET_MODEL" \
+    --host 127.0.0.1 --port 8978 \
+    --threads "${PARAKEET_THREADS:-${WHISPER_THREADS:-8}}" &
+  PARAKEET_PID=$!
+}
+start_parakeet
 
 for _ in $(seq 1 180); do
   curl -fsS -o /dev/null "http://127.0.0.1:8977/" 2>/dev/null && break
@@ -72,6 +99,10 @@ supervise_decoder() {
       echo "engine: decoder process died, restarting it" >&2
       start_decoder
       continue
+    fi
+    if [ -n "$PARAKEET_PID" ] && ! kill -0 "$PARAKEET_PID" 2>/dev/null; then
+      echo "engine: parakeet died, restarting it" >&2
+      start_parakeet
     fi
     if ! curl -fsS -o /dev/null --max-time 10 "http://127.0.0.1:8977/" 2>/dev/null; then
       echo "engine: decoder stopped answering, cycling it" >&2
