@@ -188,6 +188,23 @@ export default function AdminPage() {
                           Back to Trial
                         </button>
                       )}
+                      {u.machines.length > 0 && (
+                        <button
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `Release ${u.machines.length} activated machine${u.machines.length === 1 ? "" : "s"} for ${u.email}?\n\nUse this when someone buys a new computer. Their next dictation claims the freed seat automatically.`
+                              )
+                            )
+                              act(u.id, "unbind");
+                          }}
+                          disabled={busy !== ""}
+                          className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-ink disabled:opacity-40"
+                          title="Free this licence's machine seats so the customer can install on a new computer"
+                        >
+                          Unbind {u.machines.length}
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

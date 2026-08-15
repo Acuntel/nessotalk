@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Notarization requires the hardened runtime, and the hardened runtime
+       blocks things this app legitimately needs. Each exception below is here
+       for a specific reason, not defensively. -->
+
+  <!-- The daemon shells out to whisper-cli and ffmpeg from Homebrew, which are
+       signed by someone else. Without this, the hardened runtime refuses to let
+       them load and audio conditioning plus live captions die silently. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+
+  <!-- Recording is the product. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+
+  <!-- Transcription happens on the NessoTalk engine, and the licence check-in
+       talks to nesso.tech. Both are outbound only. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+
+  <!-- The app posts a synthetic Cmd-V to paste into whatever the user is typing
+       in, and reads the focused window title for context. That is Accessibility
+       work, which the user grants explicitly in System Settings. -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+</dict>
+</plist>

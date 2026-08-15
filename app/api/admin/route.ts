@@ -86,8 +86,41 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
+  if (!userId) return NextResponse.json({ error: "bad_action" }, { status: 400 });
+
+  // Unbind: release this licence's activated machines so the customer can
+  // install on a new Mac. A key is bound to one machine per platform, so buying
+  // a laptop otherwise locks a paying customer out of their own subscription
+  // with no way back. This is reportedly the single most common support ticket
+  // for licensed desktop software, and until now there was no way to do it at
+  // all, in admin or self-serve.
+  //
+  // Deleting the rows is the whole fix: /api/license re-inserts on the next
+  // check-in, so the new machine claims the freed seat automatically.
+  if (action === "unbind") {
+    const db = service();
+    const { data: p } = await db
+      .from("profiles")
+      .select("license_key")
+      .eq("id", userId)
+      .maybeSingle();
+    if (!p?.license_key) {
+      return NextResponse.json({ error: "no_license" }, { status: 400 });
+    }
+    const platform = String(
+      (await req.clone().json().catch(() => ({}))).platform ?? ""
+    ).trim().toLowerCase();
+    let q = db.from("machines").delete().eq("license_key", p.license_key);
+    // Optional platform lets you free just the Mac seat without touching Windows.
+    if (["mac", "windows", "ios"].includes(platform)) q = q.eq("platform", platform);
+    // Returning the deleted rows is how we report how many seats were freed.
+    const { data: freed, error } = await q.select("id");
+    if (error) return NextResponse.json({ error: "unbind_failed" }, { status: 500 });
+    return NextResponse.json({ ok: true, released: (freed ?? []).length });
+  }
+
   const patch = ACTIONS[action];
-  if (!patch || !userId) return NextResponse.json({ error: "bad_action" }, { status: 400 });
+  if (!patch) return NextResponse.json({ error: "bad_action" }, { status: 400 });
 
   const { error } = await service().from("profiles").update(patch).eq("id", userId);
   if (error) return NextResponse.json({ error: "update_failed" }, { status: 500 });
