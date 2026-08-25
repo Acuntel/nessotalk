@@ -8,10 +8,14 @@ import { Check, Download, ShieldCheck, Mic, Sparkles } from "lucide-react";
 const STEPS = [
   {
     icon: Download,
-    title: "Download your copy",
+    title: "Install NessoTalk",
     time: "20 seconds",
-    body: "Your license is already inside this file, so there is no key to type and nothing to activate. Pick your computer and the download starts.",
-    hint: "Already installed the version from the home page? Copy your key above and paste it into Settings instead.",
+    // Reframed away from "download your copy". Your words are transcribed on the
+    // NessoTalk engine, so what lands on the customer's Mac is a small app that
+    // reaches it, not a speech model. Saying "download" made the app sound like
+    // the product; the subscription is the product.
+    body: "The app is small, because the work happens on our engine rather than on your computer. Your license is already inside the file, so there is nothing to type and nothing to activate.",
+    hint: "Setting up a second computer, or installed from the home page already? Copy your key above and paste it into Settings instead.",
     action: "download",
   },
   {
@@ -37,7 +41,7 @@ const STEPS = [
   },
 ];
 
-export default function Walkthrough({ paid }: { paid: boolean }) {
+export default function Walkthrough() {
   const [step, setStep] = useState(0);
   const [done, setDone] = useState<number[]>([]);
   const s = STEPS[step];
@@ -85,16 +89,11 @@ export default function Walkthrough({ paid }: { paid: boolean }) {
           {s.action === "download" && (
             <div className="mt-5 grid grid-cols-2 gap-3">
               <a
-                href={paid ? "/api/download?platform=mac" : undefined}
-                onClick={paid ? next : undefined}
-                aria-disabled={!paid}
-                className={`rounded-xl py-3 text-center text-sm font-semibold transition ${
-                  paid
-                    ? "bg-ink text-paper hover:bg-rosedeep"
-                    : "pointer-events-none bg-ink/10 text-muted"
-                }`}
+                href="/api/download?platform=mac"
+                onClick={next}
+                className="rounded-xl bg-ink py-3 text-center text-sm font-semibold text-paper transition hover:bg-rosedeep"
               >
-                 Mac
+                 Install for Mac
               </a>
             </div>
           )}

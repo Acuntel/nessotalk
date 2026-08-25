@@ -23,11 +23,13 @@ export default function Dashboard({
   licenseKey: string;
 }) {
   const router = useRouter();
-  const paid = plan !== "trial";
-  // A live trial is real access. The old build put checkout in front of the
-  // download, which meant "fourteen days free" bought you nothing you could
-  // actually run.
-  const hasAccess = paid || daysLeft > 0;
+  // Allowlist, not denylist. `plan !== "trial"` quietly treated any unexpected
+  // value as paid, which is the wrong direction to fail in.
+  const active = plan === "pro";
+  // A live trial is real access. Putting checkout in front of setup meant
+  // "fourteen days free" bought you nothing you could actually run.
+  const trialLive = !active && daysLeft > 0;
+  const hasAccess = active || trialLive;
   const [copied, setCopied] = useState(false);
 
   async function signOut() {
@@ -60,11 +62,11 @@ export default function Dashboard({
           </Link>
           <div className="flex items-center gap-4">
             <span className="rounded-full bg-rose/20 px-3 py-1 text-xs font-semibold text-rosedeep ring-1 ring-rose/40">
-              {paid
-                ? `${plan} · active`
-                : hasAccess
-                  ? `Trial · ${daysLeft} days left`
-                  : "Trial ended"}
+              {active
+                ? "Subscribed"
+                : trialLive
+                  ? `${daysLeft} ${daysLeft === 1 ? "day" : "days"} left`
+                  : "Paused"}
             </span>
             <button onClick={signOut} className="text-sm text-muted hover:text-ink">
               Sign out
@@ -73,24 +75,56 @@ export default function Dashboard({
         </div>
 
         <h1 className="mt-8 font-display text-3xl text-ink">
-          {hasAccess ? "Your copy is ready" : "Your trial has ended"}
+          {active
+            ? "You are all set"
+            : trialLive
+              ? "You are ready to talk"
+              : "Your access is paused"}
         </h1>
-        <p className="mt-2 text-sm leading-6 text-muted">
+        <p className="mt-2 max-w-lg text-sm leading-6 text-muted">
           {hasAccess
-            ? "The download below has your license inside it, so it works the moment it finishes installing."
-            : "Subscribe to switch your copy back on. Everything you set up stays exactly as it was."}
+            ? "Your subscription is what does the work. Your words are transcribed on the NessoTalk engine, and the app below is just how you reach it, so there is nothing heavy to install and nothing to activate."
+            : "Nothing was deleted. The app, your settings, your dictionary and your key are all exactly where you left them, and subscribing switches them back on straight away."}
         </p>
 
-        {/* Your key, right at the top. Someone who already installed the free
-            download from the home page needs exactly this and nothing else. */}
+        {/* One bright thing to do per state, and nothing dimmed. A greyed-out
+            tutorial reads as a page that failed to load rather than as a
+            feature you have lost access to, so the locked state simply does not
+            render the tutorial at all. */}
+
+        {!hasAccess && (
+          <div className="mt-8 rounded-3xl border-2 border-rose bg-card p-8 shadow-glow">
+            <h2 className="font-display text-2xl text-ink">
+              Switch it back on for $4.99 a month
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              Founding price, locked for as long as you stay subscribed. It takes
+              effect the moment you pay, and you keep everything you already set up.
+              Cancel by email and it is handled the same day.
+            </p>
+            <button
+              onClick={subscribe}
+              className="mt-6 w-full rounded-xl bg-rose py-4 text-lg font-semibold text-white transition hover:bg-rosedeep"
+            >
+              Subscribe for $4.99 a month
+            </button>
+          </div>
+        )}
+
+        {hasAccess && (
+          <div className="mt-6">
+            <Walkthrough />
+          </div>
+        )}
+
         <div className="mt-6 rounded-3xl border border-line bg-card p-8">
           <h2 className="font-display text-xl text-ink">Your license key</h2>
           <p className="mt-1 text-sm leading-6 text-muted">
-            The download below already carries this key. You only need to copy it
-            if you installed from the home page, or you are setting up a second
-            computer. Paste it into Settings in the app, under &quot;Your license
-            key&quot;, then click Save. Good for one Mac, one Windows PC, and one
-            iPhone.
+            This is what your subscription actually is: the key that opens the
+            engine. The install above already carries it, so you only need to copy
+            it when you are setting up another computer. Paste it into Settings in
+            the app, under &quot;Your license key&quot;, then click Save. Good for
+            one Mac, one Windows PC, and one iPhone.
           </p>
           <button
             onClick={copyKey}
@@ -105,24 +139,24 @@ export default function Dashboard({
           </button>
         </div>
 
-        <div className={`mt-6 ${hasAccess ? "" : "pointer-events-none opacity-50"}`}>
-          <Walkthrough paid={hasAccess} />
-        </div>
-
-        {!paid && (
-          <div className="mt-6 rounded-3xl border border-rose/40 bg-card p-8">
+        {/* During a live trial the ask stays quiet and sits last. The customer
+            has not felt the product yet, so pushing checkout above setup is how
+            you lose them. */}
+        {trialLive && (
+          <div className="mt-6 rounded-3xl border border-line bg-card p-8">
             <h2 className="font-display text-xl text-ink">
-              {hasAccess
-                ? `Keep it after day ${daysLeft > 0 ? daysLeft : 14}`
-                : "Subscribe to switch it back on"}
+              {daysLeft <= 3
+                ? `Only ${daysLeft} ${daysLeft === 1 ? "day" : "days"} left`
+                : "Keep it after the free fortnight"}
             </h2>
             <p className="mt-2 text-sm leading-6 text-muted">
-              $4.99 a month. Founding price, locked for as long as you stay
-              subscribed. Cancel by email and it is handled the same day.
+              $4.99 a month, which is about a third of what the well known ones
+              charge. Founding price, locked for as long as you stay subscribed.
+              Subscribing now does not shorten your free days.
             </p>
             <button
               onClick={subscribe}
-              className="mt-5 w-full rounded-xl bg-rose py-3.5 font-semibold text-white transition hover:bg-rosedeep"
+              className="mt-5 w-full rounded-xl border border-rose bg-transparent py-3.5 font-semibold text-rosedeep transition hover:bg-rose hover:text-white"
             >
               Subscribe for $4.99 a month
             </button>

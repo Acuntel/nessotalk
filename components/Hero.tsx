@@ -52,18 +52,28 @@ export default function Hero() {
           transition={{ duration: 0.7, delay: 0.3 }}
           className="mt-9 flex flex-col items-center gap-4"
         >
+          {/* Account first, not download first. The public zip carries no
+              licence key, so "Download for Mac" installed an app that refused to
+              record and left the visitor to work out on their own that they
+              needed an account. One path, and it ends with a working app. */}
           <div id="download" className="flex flex-col items-center gap-3 sm:flex-row">
             <a
-              href="/download/mac"
-              className="rounded-2xl bg-rose px-9 py-4 text-lg font-semibold text-white shadow-glow transition hover:bg-rosedeep"
+              href="/start"
+              className="rounded-2xl bg-rose px-10 py-4 text-lg font-semibold text-white shadow-glow transition hover:bg-rosedeep"
             >
-               Download for Mac
+              Start talking free
             </a>
           </div>
           <p className="max-w-md text-sm leading-6 text-muted">
-            Free for fourteen days, then $4.99 a month. No card is needed to start,
-            and you create a free account during setup to get your key. Cancel by
-            emailing Brady and it is handled the same day.
+            Fourteen days free and no card to start. Setup takes about two
+            minutes, and there is no big download because your words are
+            transcribed on our engine rather than on your computer.
+          </p>
+          <p className="text-sm text-muted">
+            Already have an account?{" "}
+            <a href="/start?mode=signin" className="font-semibold text-rosedeep underline underline-offset-4">
+              Sign in
+            </a>
           </p>
         </motion.div>
       </div>

@@ -105,15 +105,18 @@ export function FinalCTA() {
         Your keyboard has done enough work for one career
       </h2>
       <p className="mx-auto mt-4 max-w-xl text-muted">
-        You get fourteen days free, and most people are talking to their
-        computer within a minute of finishing setup.
+        Fourteen days free, no card to start, and most people are talking to
+        their computer within two minutes of creating an account.
       </p>
       <Link
-        href="/#download"
+        href="/start"
         className="mt-8 inline-block rounded-xl bg-rose px-10 py-4 text-lg font-semibold text-white shadow-glow transition hover:bg-rosedeep"
       >
-        Download NessoTalk free
+        Start talking free
       </Link>
+      <p className="mt-4 text-sm text-muted">
+        $4.99 a month after that. Cancel by email and it is handled the same day.
+      </p>
     </section>
   );
 }
