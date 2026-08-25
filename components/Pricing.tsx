@@ -37,7 +37,7 @@ export default function Pricing() {
         </div>
 
         <div className="relative rounded-3xl border border-rose/50 bg-card p-8 shadow-glow">
-          <span className="absolute -top-3 left-8 rounded-full bg-rose px-3 py-1 text-xs font-bold text-white">
+          <span className="absolute -top-3 left-8 rounded-full bg-rosedark px-3 py-1 text-xs font-bold text-white">
             Founding price, locked forever
           </span>
           <div className="text-sm font-medium text-ink">NessoTalk</div>
@@ -54,7 +54,7 @@ export default function Pricing() {
           </ul>
           <Link
             href="/start"
-            className="mt-8 block rounded-xl bg-rose py-3.5 text-center font-semibold text-white transition hover:bg-rosedeep"
+            className="mt-8 block rounded-xl bg-rosedark py-3.5 text-center font-semibold text-white transition hover:bg-rosepress"
           >
             Start 14 days free
           </Link>

@@ -78,7 +78,7 @@ function StartForm() {
             <button
               type="submit"
               disabled={busy}
-              className="w-full rounded-xl bg-rose py-3.5 font-semibold text-white transition hover:bg-rosedeep disabled:opacity-60"
+              className="w-full rounded-xl bg-rosedark py-3.5 font-semibold text-white transition hover:bg-rosepress disabled:opacity-60"
             >
               {busy
                 ? "One second..."

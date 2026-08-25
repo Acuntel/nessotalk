@@ -59,7 +59,7 @@ export default function Hero() {
           <div id="download" className="flex flex-col items-center gap-3 sm:flex-row">
             <a
               href="/start"
-              className="rounded-2xl bg-rose px-10 py-4 text-lg font-semibold text-white shadow-glow transition hover:bg-rosedeep"
+              className="rounded-2xl bg-rosedark px-10 py-4 text-lg font-semibold text-white shadow-glow transition hover:bg-rosepress"
             >
               Start talking free
             </a>
@@ -71,7 +71,7 @@ export default function Hero() {
           </p>
           <p className="text-sm text-muted">
             Already have an account?{" "}
-            <a href="/start?mode=signin" className="font-semibold text-rosedeep underline underline-offset-4">
+            <a href="/start?mode=signin" className="font-semibold text-rosedark underline underline-offset-4">
               Sign in
             </a>
           </p>

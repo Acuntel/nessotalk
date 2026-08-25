@@ -15,6 +15,13 @@ const config: Config = {
         ink: "#251C19",
         rose: "#D0A098",
         rosedeep: "#B47D72",
+        // Buttons and links only. White on `rose` measures 2.29:1 and on
+        // `rosedeep` 3.43:1, so both fail WCAG AA and the primary buy button
+        // was the worst offender on the site. This sits at 5.18:1 against
+        // white while staying in the same hue family (hue 10, sat 0.31), so
+        // the brand still reads as clay rose.
+        rosedark: "#995D51",
+        rosepress: "#7F4D43",
       },
       fontFamily: {
         display: ["var(--font-display)", "Georgia", "serif"],

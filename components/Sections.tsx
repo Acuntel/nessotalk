@@ -110,7 +110,7 @@ export function FinalCTA() {
       </p>
       <Link
         href="/start"
-        className="mt-8 inline-block rounded-xl bg-rose px-10 py-4 text-lg font-semibold text-white shadow-glow transition hover:bg-rosedeep"
+        className="mt-8 inline-block rounded-xl bg-rosedark px-10 py-4 text-lg font-semibold text-white shadow-glow transition hover:bg-rosepress"
       >
         Start talking free
       </Link>

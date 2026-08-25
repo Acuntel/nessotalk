@@ -29,7 +29,7 @@ export default function Nav() {
           </Link>
           <Link
             href="/start"
-            className="rounded-lg bg-rose px-4 py-2 text-sm font-semibold text-white transition hover:bg-rosedeep"
+            className="rounded-lg bg-rosedark px-4 py-2 text-sm font-semibold text-white transition hover:bg-rosepress"
           >
             Start free
           </Link>

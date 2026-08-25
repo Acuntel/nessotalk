@@ -110,14 +110,14 @@ export default function Walkthrough() {
             {step < STEPS.length - 1 ? (
               <button
                 onClick={next}
-                className="rounded-lg bg-rose px-5 py-2 text-sm font-semibold text-white transition hover:bg-rosedeep"
+                className="rounded-lg bg-rosedark px-5 py-2 text-sm font-semibold text-white transition hover:bg-rosepress"
               >
                 {s.action === "download" ? "I've downloaded it" : "Next"}
               </button>
             ) : (
               <button
                 onClick={next}
-                className="flex items-center gap-2 rounded-lg bg-rose px-5 py-2 text-sm font-semibold text-white transition hover:bg-rosedeep"
+                className="flex items-center gap-2 rounded-lg bg-rosedark px-5 py-2 text-sm font-semibold text-white transition hover:bg-rosepress"
               >
                 <Check className="h-4 w-4" /> All set
               </button>

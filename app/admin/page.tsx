@@ -80,7 +80,7 @@ export default function AdminPage() {
       <main className="grid min-h-screen place-items-center px-5 text-center">
         <div>
           <p className="text-lg text-ink">Sign in first, then come back to /admin.</p>
-          <a href="/start?mode=signin" className="mt-4 inline-block rounded-xl bg-rose px-6 py-3 font-semibold text-white">
+          <a href="/start?mode=signin" className="mt-4 inline-block rounded-xl bg-rosedark px-6 py-3 font-semibold text-white">
             Sign in
           </a>
         </div>

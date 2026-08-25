@@ -61,7 +61,7 @@ export default function Dashboard({
             NessoTalk
           </Link>
           <div className="flex items-center gap-4">
-            <span className="rounded-full bg-rose/20 px-3 py-1 text-xs font-semibold text-rosedeep ring-1 ring-rose/40">
+            <span className="rounded-full bg-rose/20 px-3 py-1 text-xs font-semibold text-rosedark ring-1 ring-rose/40">
               {active
                 ? "Subscribed"
                 : trialLive
@@ -104,7 +104,7 @@ export default function Dashboard({
             </p>
             <button
               onClick={subscribe}
-              className="mt-6 w-full rounded-xl bg-rose py-4 text-lg font-semibold text-white transition hover:bg-rosedeep"
+              className="mt-6 w-full rounded-xl bg-rosedark py-4 text-lg font-semibold text-white transition hover:bg-rosepress"
             >
               Subscribe for $4.99 a month
             </button>
@@ -121,10 +121,13 @@ export default function Dashboard({
           <h2 className="font-display text-xl text-ink">Your license key</h2>
           <p className="mt-1 text-sm leading-6 text-muted">
             This is what your subscription actually is: the key that opens the
-            engine. The install above already carries it, so you only need to copy
-            it when you are setting up another computer. Paste it into Settings in
-            the app, under &quot;Your license key&quot;, then click Save. Good for
-            one Mac, one Windows PC, and one iPhone.
+            engine.{" "}
+            {hasAccess
+              ? "The install above already carries it, so you only need to copy it when you are setting up another computer."
+              : "It stays yours while your access is paused, and starts working again the moment you subscribe."}{" "}
+            To use it on another computer, paste it into Settings in the app,
+            under &quot;Your license key&quot;, then click Save. Good for one Mac,
+            one Windows PC, and one iPhone.
           </p>
           <button
             onClick={copyKey}
@@ -156,7 +159,7 @@ export default function Dashboard({
             </p>
             <button
               onClick={subscribe}
-              className="mt-5 w-full rounded-xl border border-rose bg-transparent py-3.5 font-semibold text-rosedeep transition hover:bg-rose hover:text-white"
+              className="mt-5 w-full rounded-xl border border-rosedark bg-transparent py-3.5 font-semibold text-rosedark transition hover:bg-rosedark hover:text-white"
             >
               Subscribe for $4.99 a month
             </button>
