@@ -14,6 +14,7 @@ SIGN_ID=99F202BCAC5ED8E803E5DAF0E8F5A4B366276831
 case "$1" in
   start)   launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; launchctl kickstart -p "$DOMAIN/$LABEL" ;;
   stop)    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null && echo "stopped" ;;
+  signin)  open "nessotalk://signin" && echo "Opening your browser to connect this Mac to your NessoTalk account." ;;
   restart) launchctl kickstart -k "$DOMAIN/$LABEL" && echo "restarted" ;;
   call)
     # Toggle call-mode in the config (no rebuild): disables/aggressive-denoises for

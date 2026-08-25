@@ -2,10 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- The customer-facing name. This is what appears in the Gatekeeper
+         dialog, in System Settings under Microphone and Accessibility, and in
+         the menu bar. It used to say "PttDictate", so somebody who had just
+         bought NessoTalk was asked to grant deep system access to a name they
+         had never seen. The BUNDLE IDENTIFIER deliberately does not change,
+         because TCC grants are keyed on it and changing it would reset every
+         existing customer's microphone and accessibility permission. -->
     <key>CFBundleName</key>
-    <string>PttDictate</string>
+    <string>NessoTalk</string>
     <key>CFBundleDisplayName</key>
-    <string>PttDictate</string>
+    <string>NessoTalk</string>
     <key>CFBundleIdentifier</key>
     <string>com.brady.ptt-dictate</string>
     <key>CFBundleExecutable</key>
@@ -15,9 +22,9 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>5.0</string>
+    <string>8.25</string>
     <key>CFBundleVersion</key>
-    <string>5</string>
+    <string>8.25</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>
@@ -25,6 +32,23 @@
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Push-to-talk dictation records your voice so it can be transcribed and typed for you.</string>
+    <string>NessoTalk records your voice only while you hold the dictation key, so it can be turned into text and typed for you.</string>
+
+    <!-- Signing in happens in a browser, where a password manager and any
+         existing session already work, and the result comes back here through
+         this scheme. It carries a single-use code, never a licence key, so an
+         intercepted link is worthless without the verifier this process kept
+         to itself. -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>NessoTalk</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>nessotalk</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
