@@ -753,6 +753,124 @@ func formatTranscript(_ raw: String) -> String {
     return text
 }
 
+
+// ===================== device sign-in (PKCE + nessotalk:// handoff) =========
+// Replaces "copy a licence key out of a web page and paste it into Settings".
+//
+// The app invents a verifier, sends only its hash to the website, opens the
+// browser, and the website hands back a single-use code through the
+// nessotalk:// URL scheme. The app then trades that code plus the verifier for
+// the licence key over HTTPS.
+//
+// The deep link deliberately carries NOTHING secret. Any app on the machine can
+// register the same URL scheme, so an intercepted link has to be worthless on
+// its own, and it is: without the verifier, which never leaves this process,
+// the code cannot be redeemed.
+enum DeviceAuth {
+    static var verifier: String?
+
+    static func base64url(_ d: Data) -> String {
+        d.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    static func apiBase() -> String {
+        // Derived from the licence URL so a self-hosted build follows along.
+        cfg.licenseUrl.replacingOccurrences(of: "/api/license", with: "")
+    }
+
+    /// Starts a sign-in and opens the browser. Safe to call repeatedly.
+    static func begin() {
+        // SystemRandomNumberGenerator is cryptographically secure on Apple
+        // platforms, so this needs no extra framework.
+        var g = SystemRandomNumberGenerator()
+        let raw = Data((0..<32).map { _ in UInt8.random(in: 0...255, using: &g) })
+        let v = base64url(raw)
+        verifier = v
+        let challenge = base64url(Data(SHA256.hash(data: Data(v.utf8))))
+
+        guard let body = try? JSONSerialization.data(withJSONObject: [
+            "action": "start", "code_challenge": challenge,
+        ]) else { return }
+        var req = URLRequest(url: URL(string: apiBase() + "/api/device")!)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.httpBody = body
+        req.timeoutInterval = 20
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            guard let data = data,
+                  let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let url = j["verify_url"] as? String, let u = URL(string: url) else {
+                log("✕ sign-in could not start (no answer from \(apiBase()))")
+                return
+            }
+            // Logged in full on purpose. If the browser fails to open, or opens
+            // the wrong one, this line is the difference between "it did
+            // nothing" and a link the person can paste anywhere.
+            log("· sign-in started, opening the browser: \(url)")
+            DispatchQueue.main.async {
+                if !NSWorkspace.shared.open(u) {
+                    log("‼️ could not open a browser — open this link yourself: \(url)")
+                    playSound("Basso")
+                }
+            }
+        }.resume()
+    }
+
+    /// Called when macOS routes nessotalk://auth?code=... back to us.
+    static func handle(url: URL) {
+        guard url.scheme == "nessotalk" else { return }
+        // nessotalk://signin lets anything on the machine ask the running app to
+        // start a sign-in: the dashboard, the installer, or `ptt signin`. The
+        // app is the only place the verifier ever exists, so the flow has to
+        // begin here rather than in whatever process asked.
+        if url.host == "signin" {
+            log("· sign-in requested")
+            begin()
+            return
+        }
+        guard url.host == "auth",
+              let code = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                  .queryItems?.first(where: { $0.name == "code" })?.value,
+              let v = verifier else {
+            log("✕ sign-in link did not match a sign-in that started here")
+            return
+        }
+        guard let body = try? JSONSerialization.data(withJSONObject: [
+            "action": "claim", "code": code, "code_verifier": v,
+        ]) else { return }
+        var req = URLRequest(url: URL(string: apiBase() + "/api/device")!)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.httpBody = body
+        req.timeoutInterval = 20
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            guard let data = data,
+                  let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let key = j["license_key"] as? String, !key.isEmpty else {
+                log("✕ sign-in could not be completed")
+                DispatchQueue.main.async { playSound("Basso") }
+                return
+            }
+            verifier = nil
+            writeConfigValue("LICENSE_KEY", key)
+            let who = (j["email"] as? String) ?? "your account"
+            log("✓ signed in as \(who) — licence stored, restarting")
+            DispatchQueue.main.async {
+                playSound("Glass")
+                // The daemon reads its config at launch, so the cleanest way to
+                // pick up a brand new licence is to come back up with it.
+                let t = Process()
+                t.executableURL = URL(fileURLWithPath: "/bin/sh")
+                t.arguments = ["-c", "sleep 1; launchctl kickstart -k gui/$(id -u)/com.brady.ptt-dictate"]
+                try? t.run()
+            }
+        }.resume()
+    }
+}
+
 // ===================== WAV helpers =====================
 // CoreAudio's in-flight WAVE file has a stale header (frame count 0) but the
 // raw PCM keeps appending after the 'data' chunk header — captions read it live.
@@ -2158,6 +2276,10 @@ final class UIController: NSObject, NSWindowDelegate {
         let logItem = NSMenuItem(title: "Open Log", action: #selector(menuLog), keyEquivalent: "")
         logItem.target = self
         menu.addItem(logItem)
+        let signIn = NSMenuItem(title: cfg.licenseKey.isEmpty ? "Sign in to NessoTalk…" : "Sign in to a different account…",
+                                action: #selector(menuSignIn), keyEquivalent: "")
+        signIn.target = self
+        menu.addItem(signIn)
         let quit = NSMenuItem(title: "Quit ptt-dictate", action: #selector(menuQuit), keyEquivalent: "")
         quit.target = self
         menu.addItem(quit)
@@ -2643,6 +2765,10 @@ final class UIController: NSObject, NSWindowDelegate {
     @objc func menuToggle() { dict.toggle() }
     @objc func menuCancel() { dict.cancelRecording() }
     @objc func menuSettings() { SettingsWindow.shared.show() }
+    @objc func menuSignIn() {
+        DeviceAuth.begin()
+    }
+
     @objc func menuLog() { NSWorkspace.shared.open(URL(fileURLWithPath: LOG)) }
     @objc func menuQuit() {
         // Under launchd KeepAlive, NSApp.terminate just respawns the daemon —
@@ -3846,7 +3972,7 @@ func polishForText(_ text: String, context: String = "") -> String? {
 // Invalid/revoked/expired/seat-capped -> recording disarms (an in-flight
 // session still finishes; we never eat words mid-recording). Empty key = dev.
 let LICENSE_PUBKEY_B64 = "DgOqB8kIOGQDePmlGSFcbZVVbujNZ9CVM+XkPFSJZjw="
-let APP_VERSION = "8.24"
+let APP_VERSION = "8.25"
 var updateAvailable = ""   // newest version the server reports, empty when current
 var licenseValid = true
 let LICENSE_TOKEN_PATH = "\(HOME)/.dictation/.license_token"
@@ -5377,6 +5503,22 @@ ensureAccessibility()
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)   // no Dock icon, but menu-bar item still shows
 ui.setup()
+
+// nessotalk:// handoff from the browser. Registered BEFORE app.run() so a link
+// that lands while we are still starting up is not dropped on the floor.
+final class URLSchemeHandler: NSObject {
+    @objc func handle(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let u = URL(string: s) else { return }
+        DeviceAuth.handle(url: u)
+    }
+}
+let urlSchemeHandler = URLSchemeHandler()
+NSAppleEventManager.shared().setEventHandler(
+    urlSchemeHandler,
+    andSelector: #selector(URLSchemeHandler.handle(_:reply:)),
+    forEventClass: AEEventClass(kInternetEventClass),
+    andEventID: AEEventID(kAEGetURL))
 if cfg.liveCaptions && !dict.captions.modelAvailable {
     log("⚠️ caption model missing at \(cfg.captionModel) — live captions disabled (download it or set CAPTION_MODEL in \(CONFIG_PATH))")
 }
@@ -5456,5 +5598,5 @@ let licTimer = Timer(timeInterval: 12 * 3600, repeats: true) { _ in
 }
 RunLoop.main.add(licTimer, forMode: .common)
 
-log("▶ NessoTalk v8.24 (engine-only transcription · HUD always shows · 3-channel mic fix · smarter modes + keyword editor · decode race · cloud engine · self-tuning code modes · no-click = \(cfg.defaultMode)) up. license=\(cfg.licenseKey.isEmpty ? "dev(off)" : "on") · cloud=\(cfg.cloud && !cfg.licenseKey.isEmpty ? "on@engine(race)" : "off(local)") · Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ("default-" + cfg.defaultMode + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
+log("▶ NessoTalk v8.25 (browser sign-in · engine-only transcription · HUD always shows · 3-channel mic fix · smarter modes + keyword editor · decode race · cloud engine · self-tuning code modes · no-click = \(cfg.defaultMode)) up. license=\(cfg.licenseKey.isEmpty ? "dev(off)" : "on") · cloud=\(cfg.cloud && !cfg.licenseKey.isEmpty ? "on@engine(race)" : "off(local)") · Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ("default-" + cfg.defaultMode + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
 app.run()

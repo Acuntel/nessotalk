@@ -18,7 +18,15 @@ say_dialog() {   # title, message
   osascript -e "display dialog \"$2\" with title \"$1\" buttons {\"Continue\"} default button 1 with icon note" >/dev/null 2>&1 || true
 }
 open_settings() { # pane anchor
-  open "x-apple.systempreferences:com.apple.preference.security?$1" 2>/dev/null || true
+  # macOS 26 (Tahoe) renamed the Privacy pane bundle. The old identifier does
+  # not error on 26, it just dumps the person at a generic Settings window with
+  # no idea which row to find, which is worse than not opening it at all.
+  # Darwin 25.x is macOS 26.
+  local major
+  major=$(sw_vers -productVersion | cut -d. -f1)
+  local pane="com.apple.preference.security"
+  [ "${major:-0}" -ge 26 ] && pane="com.apple.settings.PrivacySecurity.extension"
+  open "x-apple.systempreferences:${pane}?$1" 2>/dev/null || true
 }
 step() { echo ""; echo "[$1 of 5] $2"; }
 
@@ -86,8 +94,8 @@ if [ -n "$KEY" ]; then
     || printf '\nLICENSE_KEY=%s\n' "$KEY" >> "$DIR/config"
   echo "    Your license was found in the download and activated automatically."
 else
-  echo "    No license key in this folder. Add yours from Settings after setup."
-  say_dialog "One thing left: your key" "NessoTalk is installing now, and it needs a license key before it can record. Getting one is free and takes about a minute.\n\n1. Go to nesso.tech and create your account. Fourteen days free, no card.\n2. Copy the license key shown on your dashboard.\n3. Open NessoTalk from the menu bar, choose Settings, paste the key into \\\"Your license key\\\", and click Save.\n\nThat is it. You can also grab a copy from your dashboard with the key already inside."
+  echo "    No license key in this folder. You will sign in at the end instead."
+  NEEDS_SIGNIN=1
 fi
 chmod +x "$DIR/ptt"
 # The config holds the license key, so it is the user's alone to read. The daemon
@@ -113,10 +121,16 @@ cd "$DIR" && ./ptt start
 echo "    NessoTalk is running. Look for the microphone icon in your menu bar."
 
 step 5 "Granting the two permissions."
-say_dialog "Two permissions to grant" "System Settings will now open twice.\n\nFirst, under Microphone, switch on PttDictate. That lets NessoTalk hear you.\n\nThen, under Accessibility, switch on PttDictate. That lets NessoTalk type the words for you.\n\nNessoTalk will not record anything until you press the key yourself."
+say_dialog "Two permissions to grant" "System Settings will now open twice.\n\nFirst, under Microphone, switch on NessoTalk. That lets it hear you.\n\nThen, under Accessibility, switch on NessoTalk. That lets it type the words for you.\n\nNessoTalk will not record anything until you press the key yourself."
 open_settings "Privacy_Microphone"
 sleep 3
 open_settings "Privacy_Accessibility"
+
+if [ "${NEEDS_SIGNIN:-0}" = "1" ]; then
+  say_dialog "Last step: connect your account" "Your browser will open so you can sign in. It takes one click and there is nothing to copy or type.\n\nIf you do not have an account yet you can create one on that page. Fourteen days free, no card."
+  open "nessotalk://signin" 2>/dev/null || true
+  sleep 2
+fi
 
 say_dialog "You are ready" "Here is how to use it.\n\n1. Click into any text box, an email, a message, anywhere.\n2. Tap the Right Command key once. A bar appears at the bottom of your screen.\n3. Say whatever you want written.\n4. Tap Right Command again. Your words appear, cleaned up.\n\nPress Escape at any time to throw a recording away.\n\nThat is the whole thing. Try it now."
 
