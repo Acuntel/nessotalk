@@ -1712,7 +1712,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         let l = NSTextField(labelWithString: text)
         l.font = .systemFont(ofSize: bold ? 13 : 12, weight: bold ? .semibold : .regular)
         l.textColor = bold ? .labelColor : .secondaryLabelColor
-        l.frame = NSRect(x: 24, y: y, width: 200, height: 18)
+        // Sized to the text rather than a guessed 200pt, which truncated
+        // "Key that starts and stops dictation" to "…stops dictat".
+        let fit = l.sizeThatFits(NSSize(width: 460, height: 18)).width
+        l.frame = NSRect(x: 24, y: y, width: min(460, max(200, ceil(fit) + 4)), height: 18)
         return l
     }
 
@@ -1721,8 +1724,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         // wrapped in a scroll view: every row stays reachable no matter how many
         // settings exist, which is how the Save row went missing pre-v8.16
         // (content ran to y = -58 in a fixed 560pt view with no scrolling).
-        // v8.21: +184pt for the mode-keywords editor.
-        let w: CGFloat = 520, h: CGFloat = 824, visibleH: CGFloat = 560
+        // v8.26: the window is short enough now that it does not need to
+        // scroll at all. It is kept in the scroll view anyway so that adding a
+        // row later cannot push Save off the bottom edge again.
+        let w: CGFloat = 520, h: CGFloat = 470, visibleH: CGFloat = 470
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w, height: visibleH),
                            styleMask: [.titled, .closable], backing: .buffered, defer: false)
         win.title = "NessoTalk Settings"
@@ -1737,12 +1742,26 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         v.addSubview(title)
 
         y -= 46
-        v.addSubview(label("Your license key", y, bold: true))
+        // ACCOUNT. There is no key to paste any more: signing in happens in the
+        // browser and the licence arrives through nessotalk://. The field below
+        // is still CREATED and still loaded and saved, so an existing key is
+        // never lost, it is simply not something anyone should have to look at.
+        v.addSubview(label("Account", y, bold: true))
         y -= 26
-        licenseField = NSTextField(frame: NSRect(x: 24, y: y, width: w - 48, height: 24))
-        licenseField.placeholderString = "Paste the key from nesso.tech"
-        licenseField.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        v.addSubview(licenseField)
+        let signedIn = !cfg.licenseKey.isEmpty
+        let acct = NSTextField(labelWithString: signedIn
+            ? "This Mac is connected to your NessoTalk account."
+            : "Not connected yet.")
+        acct.font = .systemFont(ofSize: 12)
+        acct.textColor = signedIn ? .secondaryLabelColor : .systemRed
+        acct.frame = NSRect(x: 24, y: y + 3, width: w - 200, height: 18)
+        v.addSubview(acct)
+        let signInBtn = NSButton(title: signedIn ? "Sign in again" : "Sign in",
+                                 target: self, action: #selector(signInClicked))
+        signInBtn.bezelStyle = .rounded
+        signInBtn.frame = NSRect(x: w - 160, y: y, width: 136, height: 26)
+        v.addSubview(signInBtn)
+        licenseField = NSTextField(frame: .zero)   // kept so Save preserves the key
 
         y -= 44
         v.addSubview(label("Key that starts and stops dictation", y, bold: true))
@@ -1758,24 +1777,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         v.addSubview(hint)
 
         y -= 44
-        v.addSubview(label("How it should always write", y, bold: true))
-        y -= 26
-        styleField = NSTextField(frame: NSRect(x: 24, y: y, width: w - 48, height: 24))
-        styleField.placeholderString = "for example: warm and direct, never stiff"
-        v.addSubview(styleField)
-
-        y -= 44
-        v.addSubview(label("When you do not pick a mode", y, bold: true))
+        v.addSubview(label("Microphone", y, bold: true))
         y -= 28
-        // Order must match SETTINGS_MODES below, and must cover every mode the
-        // HUD offers or the two pickers disagree with each other.
-        modePopup = NSPopUpButton(frame: NSRect(x: 24, y: y, width: 280, height: 26))
-        modePopup.addItems(withTitles: ["Summarize for an AI tool",
-                                        "Clean it up professionally",
-                                        "Leave my words alone",
-                                        "Write a brief for a coding agent",
-                                        "Fill in the detail (AI Extend)"])
-        v.addSubview(modePopup)
+        micPopup = NSPopUpButton(frame: NSRect(x: 24, y: y, width: w - 48, height: 26))
+        micPopup.addItem(withTitle: "Built in microphone")
+        for d in allInputDevices() where !d.builtIn { micPopup.addItem(withTitle: d.name) }
+        v.addSubview(micPopup)
 
         y -= 44
         v.addSubview(label("Language", y, bold: true))
@@ -1784,65 +1791,35 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         languagePopup.addItems(withTitles: languages.map { $0.0 })
         v.addSubview(languagePopup)
 
-        y -= 44
-        v.addSubview(label("Microphone", y, bold: true))
-        y -= 28
-        micPopup = NSPopUpButton(frame: NSRect(x: 24, y: y, width: w - 48, height: 26))
-        micPopup.addItem(withTitle: "Built in microphone")
-        for d in allInputDevices() where !d.builtIn { micPopup.addItem(withTitle: d.name) }
-        v.addSubview(micPopup)
-
         y -= 40
         whisperToggle = NSButton(checkboxWithTitle: "Whisper mode, for dictating quietly in public",
                                  target: nil, action: nil)
         whisperToggle.frame = NSRect(x: 24, y: y, width: w - 48, height: 20)
         v.addSubview(whisperToggle)
 
-        y -= 44
-        let dict = NSButton(title: "Edit my dictionary", target: self, action: #selector(openDictionary))
-        dict.bezelStyle = .rounded
-        dict.frame = NSRect(x: 24, y: y, width: 170, height: 26)
-        v.addSubview(dict)
-        let snip = NSButton(title: "Edit my snippets", target: self, action: #selector(openSnippets))
-        snip.bezelStyle = .rounded
-        snip.frame = NSRect(x: 204, y: y, width: 160, height: 26)
-        v.addSubview(snip)
+        // Everything else still exists and is still honoured. It lives in the
+        // config file rather than on this window, because a settings screen that
+        // shows every knob is a settings screen nobody reads. These controls are
+        // created but not displayed, so Save writes their loaded values back
+        // untouched and nothing anyone configured is lost.
+        styleField = NSTextField(frame: .zero)
+        modePopup = NSPopUpButton(frame: .zero)
+        modePopup.addItems(withTitles: ["Summarize for an AI tool",
+                                        "Clean it up professionally",
+                                        "Leave my words alone",
+                                        "Write a brief for a coding agent",
+                                        "Fill in the detail (AI Extend)"])
 
-        // v8.21: mode-keywords editor. The friendly face of ~/.dictation/
-        // mode-rules: pick a section, type the phrase, click Add. The agent
-        // sorter hot-loads the file on every dictation, so changes apply
-        // INSTANTLY with no Save and no restart.
-        y -= 48
-        v.addSubview(label("Teach it your mode keywords", y, bold: true))
-        y -= 20
-        let kwHint = NSTextField(labelWithString: "Phrases you say that belong in a section of the AI Agent brief. Applied instantly.")
-        kwHint.font = .systemFont(ofSize: 11)
-        kwHint.textColor = .tertiaryLabelColor
-        kwHint.frame = NSRect(x: 24, y: y, width: w - 48, height: 16)
-        v.addSubview(kwHint)
-        y -= 32
-        kwSectionPopup = NSPopUpButton(frame: NSRect(x: 24, y: y, width: 126, height: 26))
-        kwSectionPopup.addItems(withTitles: kwSections.map { $0.0 })
-        v.addSubview(kwSectionPopup)
-        kwPhraseField = NSTextField(frame: NSRect(x: 156, y: y + 1, width: 184, height: 24))
-        kwPhraseField.placeholderString = "phrase you say"
-        v.addSubview(kwPhraseField)
-        kwWeightPopup = NSPopUpButton(frame: NSRect(x: 346, y: y, width: 84, height: 26))
-        kwWeightPopup.addItems(withTitles: ["Gentle", "Normal", "Strong"])
-        kwWeightPopup.selectItem(at: 1)
-        v.addSubview(kwWeightPopup)
-        let kwAdd = NSButton(title: "Add", target: self, action: #selector(kwAddClicked))
-        kwAdd.bezelStyle = .rounded
-        kwAdd.frame = NSRect(x: 436, y: y - 1, width: 60, height: 28)
-        v.addSubview(kwAdd)
-        y -= 84
-        kwScroll = NSScrollView(frame: NSRect(x: 24, y: y, width: w - 48, height: 76))
-        kwScroll.hasVerticalScroller = true
-        kwScroll.borderType = .bezelBorder
-        kwScroll.drawsBackground = false
-        v.addSubview(kwScroll)
+        y -= 46
+        let adv = NSButton(title: "Advanced settings…", target: self, action: #selector(openAdvanced))
+        adv.bezelStyle = .rounded
+        adv.frame = NSRect(x: 24, y: y, width: 170, height: 26)
+        v.addSubview(adv)
+        let words = NSButton(title: "Words it gets wrong", target: self, action: #selector(openDictionary))
+        words.bezelStyle = .rounded
+        words.frame = NSRect(x: 204, y: y, width: 170, height: 26)
+        v.addSubview(words)
 
-        y -= 44
         statusLabel = NSTextField(labelWithString: "")
         statusLabel.font = .systemFont(ofSize: 11)
         statusLabel.textColor = .secondaryLabelColor
@@ -1856,7 +1833,13 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
         let sv = NSScrollView(frame: NSRect(x: 0, y: 0, width: w, height: visibleH))
         sv.hasVerticalScroller = true
-        sv.drawsBackground = false
+        // Opaque on purpose. With drawsBackground off, whatever sits behind the
+        // window shows through the settings, which looks like the app is
+        // rendering text it did not write.
+        sv.drawsBackground = true
+        sv.backgroundColor = .windowBackgroundColor
+        v.wantsLayer = true
+        v.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         sv.documentView = v
         // Open showing the TOP of the settings, not the bottom.
         sv.contentView.scroll(to: NSPoint(x: 0, y: h - visibleH))
@@ -1979,6 +1962,15 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     }
 
     // First click arms it, second click listens for the key you press next.
+    @objc private func signInClicked() {
+        DeviceAuth.begin()
+    }
+
+    @objc private func openAdvanced() {
+        // Everything not on this window still lives here and is still honoured.
+        NSWorkspace.shared.open(URL(fileURLWithPath: CONFIG_PATH))
+    }
+
     @objc private func hotkeyClicked() {
         if !hotkeyArmed {
             hotkeyArmed = true
@@ -2243,6 +2235,7 @@ final class UIController: NSObject, NSWindowDelegate {
     var stopButton: NSButton?
     var cancelButton: NSButton?
     var settingsButton: NSButton?
+    var hintField: NSTextField?
     var customHUDFrame: NSRect?
     var suppressFrameTracking = false
     var resizeEdges: [ResizeEdgeView] = []
@@ -2344,22 +2337,25 @@ final class UIController: NSObject, NSWindowDelegate {
         // a few seconds). Finish is push-to-live: stop and paste IMMEDIATELY
         // with whatever is already prepared — the pre-run rewrite if it's done,
         // otherwise your words exactly as spoken. It never waits on the AI.
-        let finishBtn = makeActionButton("⚡ Finish", x: w - 268, y: h - 44, width: 92, height: 32,
-                                         action: #selector(hudFinish), accent: false,
-                                         color: NSColor(calibratedRed: 0.13, green: 0.55, blue: 0.28, alpha: 0.95))
-        finishBtn.toolTip = "Push to live: stop and paste instantly — the finished rewrite if it's ready, otherwise exactly what you said. Never waits."
-        root.addSubview(finishBtn)
-        finishButton = finishBtn
+        // v8.26: STOP is gone, and that is a simplification rather than a
+        // regression. It existed because a click on our own panel cannot be
+        // starved by Secure Input the way the Right-⌘ hotkey can, so there had
+        // to be a mouse-clickable way out. Done is also a click on this panel,
+        // so that guarantee is intact. And since modes became code-only in
+        // v8.11 the transform takes microseconds, so Stop and Finish deliver
+        // exactly the same thing. Two buttons for one action is just a choice
+        // the person has to make for no reason.
+        let doneBtn = makeActionButton("✓  Done", x: w - 150, y: 14, width: 132, height: 46,
+                                       action: #selector(hudFinish), accent: false,
+                                       color: NSColor(calibratedRed: 0.13, green: 0.55, blue: 0.28, alpha: 0.95))
+        doneBtn.toolTip = "Finish and paste. The Right Command key does the same thing."
+        root.addSubview(doneBtn)
+        finishButton = doneBtn
 
-        let stopBtn = makeActionButton("Stop", x: w - 168, y: h - 44, width: 92, height: 32,
-                                       action: #selector(hudStop), accent: true)
-        stopBtn.toolTip = "Stop and deliver in the selected mode. Always works, even when the hotkey does not."
-        root.addSubview(stopBtn)
-        stopButton = stopBtn
-
-        let cancelBtn = makeActionButton("✕", x: w - 64, y: h - 44, width: 44, height: 32,
-                                         action: #selector(hudCancel), accent: false)
-        cancelBtn.toolTip = "Discard this recording. Always works, even when Esc does not."
+        let cancelBtn = makeActionButton("✕", x: w - 56, y: h - 42, width: 38, height: 28,
+                                         action: #selector(hudCancel), accent: false,
+                                         color: NSColor(calibratedRed: 0.62, green: 0.16, blue: 0.16, alpha: 0.95))
+        cancelBtn.toolTip = "Throw this recording away. Always works, even when Escape does not."
         root.addSubview(cancelBtn)
         cancelButton = cancelBtn
 
@@ -2385,19 +2381,32 @@ final class UIController: NSObject, NSWindowDelegate {
         captionField = caption
         captionScroll = scroller
 
-        // Two equal, large, obvious buttons. Settings pauses the recording;
-        // Mode opens the five-way picker with a hover example on each.
-        let pad: CGFloat = 18, gap: CGFloat = 12, btnH: CGFloat = 42
-        let btnW = (w - pad * 2 - gap) / 2
-        let setBtn = makeActionButton("⚙  Settings", x: pad, y: 14, width: btnW, height: btnH,
-                                      action: #selector(modeSettings), accent: false)
-        setBtn.toolTip = "Opens settings. Your recording pauses while it is open and resumes when you close it."
-        let modeBtn = makeActionButton("◈  Mode", x: pad + btnW + gap, y: 14, width: btnW, height: btnH,
+        // The mode is the only thing worth changing mid-dictation, so it gets
+        // the whole bottom row. Settings shrinks to a gear in the corner: it is
+        // something you touch once when you set up, not while you are talking.
+        let modeBtn = makeActionButton("◈  Mode", x: 18, y: 14, width: w - 186, height: 46,
                                        action: #selector(hudPickMode), accent: false)
-        modeBtn.toolTip = "Choose how this dictation is delivered."
-        root.addSubview(setBtn); root.addSubview(modeBtn)
-        settingsButton = setBtn
+        modeBtn.toolTip = "How this dictation gets written."
+        root.addSubview(modeBtn)
         modeMenuButton = modeBtn
+
+        let setBtn = makeActionButton("⚙", x: 14, y: h - 42, width: 30, height: 28,
+                                      action: #selector(modeSettings), accent: false)
+        setBtn.toolTip = "Settings. Your recording pauses while this is open and picks up again when you close it."
+        root.addSubview(setBtn)
+        settingsButton = setBtn
+
+        // The one instruction anybody needs, sitting where they are already
+        // looking. Losing a recording you cannot stop is the failure this whole
+        // panel exists to prevent, so the way out is written down.
+        let hint = NSTextField(labelWithString: "Tap Right ⌘ to finish, or press Done")
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = NSColor.white.withAlphaComponent(0.55)
+        hint.backgroundColor = .clear
+        hint.isBordered = false
+        hint.frame = NSRect(x: 20, y: 66, width: w - 40, height: 14)
+        root.addSubview(hint)
+        hintField = hint
         // v8.8: restore the remembered mode, so the app reopens already
         // running in whatever mode was active last time it was used.
         selectedMode = DeliverMode.fromConfig(cfg.selectedMode)
@@ -2456,7 +2465,7 @@ final class UIController: NSObject, NSWindowDelegate {
         // whole HUD on the caption model is what left every customer with no
         // Stop button at all when CAPTION_MODEL pointed somewhere they had no file.
         let captionsLive = cfg.liveCaptions && dict.captions.modelAvailable
-        captionField?.stringValue = captionsLive ? "Listening…" : "Recording. Tap Right ⌘ or press Stop when you are done."
+        captionField?.stringValue = captionsLive ? "Listening…" : "Recording."
         elapsedField?.stringValue = "0:00"
         // v8.8: the mode is sticky. Whatever was last picked stays active
         // across recordings AND restarts (SELECTED_MODE in the config) — no
@@ -2683,28 +2692,29 @@ final class UIController: NSObject, NSWindowDelegate {
         guard let p = panel, let root = p.contentView else { return }
         let w = root.bounds.width, h = root.bounds.height
 
-        elapsedField?.frame = NSRect(x: 20, y: h - 34, width: 96, height: 18)
-        finishButton?.frame = NSRect(x: w - 268, y: h - 44, width: 92, height: 32)
-        stopButton?.frame   = NSRect(x: w - 168, y: h - 44, width: 92, height: 32)
-        cancelButton?.frame = NSRect(x: w - 64,  y: h - 44, width: 44, height: 32)
+        // Top bar: gear, elapsed, waveform, cancel. Bottom: mode, then Done.
+        settingsButton?.frame = NSRect(x: 14, y: h - 42, width: 30, height: 28)
+        elapsedField?.frame   = NSRect(x: 52, y: h - 38, width: 74, height: 18)
+        cancelButton?.frame   = NSRect(x: w - 56, y: h - 42, width: 38, height: 28)
 
-        // Waveform lives between the elapsed readout and the Finish button;
-        // it shrinks with the pill and hides entirely when there is no room.
-        let wfLeft: CGFloat = 124, wfRight = w - 276
+        // Waveform sits between the elapsed readout and the cancel button, and
+        // gives up its space before anything you need to click does.
+        let wfLeft: CGFloat = 132, wfRight = w - 68
         let avail = wfRight - wfLeft
         if avail >= 60, let wf = waveform {
-            let wfW = min(200, avail)
+            let wfW = min(240, avail)
             wf.isHidden = false
-            wf.frame = NSRect(x: wfLeft + (avail - wfW) / 2, y: h - 42, width: wfW, height: 30)
+            wf.frame = NSRect(x: wfLeft + (avail - wfW) / 2, y: h - 42, width: wfW, height: 28)
         } else {
             waveform?.isHidden = true
         }
 
-        captionScroll?.frame = NSRect(x: 16, y: 68, width: w - 32, height: max(0, h - 114))
-        let pad: CGFloat = 18, gap: CGFloat = 12
-        let btnW = (w - pad * 2 - gap) / 2
-        settingsButton?.frame = NSRect(x: pad, y: 14, width: btnW, height: 42)
-        modeMenuButton?.frame = NSRect(x: pad + btnW + gap, y: 14, width: btnW, height: 42)
+        let doneW: CGFloat = min(132, max(88, w * 0.22))
+        modeMenuButton?.frame  = NSRect(x: 18, y: 14, width: max(80, w - doneW - 54), height: 46)
+        finishButton?.frame    = NSRect(x: w - doneW - 18, y: 14, width: doneW, height: 46)
+        hintField?.frame       = NSRect(x: 20, y: 66, width: max(0, w - 40), height: 14)
+        hintField?.isHidden    = h < 170
+        captionScroll?.frame   = NSRect(x: 16, y: 84, width: w - 32, height: max(0, h - 130))
 
         // Resize handles hug the current edges: 8pt strips, 14pt corners.
         let g: CGFloat = 8, c: CGFloat = 14
@@ -3972,7 +3982,7 @@ func polishForText(_ text: String, context: String = "") -> String? {
 // Invalid/revoked/expired/seat-capped -> recording disarms (an in-flight
 // session still finishes; we never eat words mid-recording). Empty key = dev.
 let LICENSE_PUBKEY_B64 = "DgOqB8kIOGQDePmlGSFcbZVVbujNZ9CVM+XkPFSJZjw="
-let APP_VERSION = "8.25"
+let APP_VERSION = "8.26"
 var updateAvailable = ""   // newest version the server reports, empty when current
 var licenseValid = true
 let LICENSE_TOKEN_PATH = "\(HOME)/.dictation/.license_token"
@@ -5598,5 +5608,5 @@ let licTimer = Timer(timeInterval: 12 * 3600, repeats: true) { _ in
 }
 RunLoop.main.add(licTimer, forMode: .common)
 
-log("▶ NessoTalk v8.25 (browser sign-in · engine-only transcription · HUD always shows · 3-channel mic fix · smarter modes + keyword editor · decode race · cloud engine · self-tuning code modes · no-click = \(cfg.defaultMode)) up. license=\(cfg.licenseKey.isEmpty ? "dev(off)" : "on") · cloud=\(cfg.cloud && !cfg.licenseKey.isEmpty ? "on@engine(race)" : "off(local)") · Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ("default-" + cfg.defaultMode + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
+log("▶ NessoTalk v8.26 (one-button pill · browser sign-in · engine-only transcription · HUD always shows · 3-channel mic fix · smarter modes + keyword editor · decode race · cloud engine · self-tuning code modes · no-click = \(cfg.defaultMode)) up. license=\(cfg.licenseKey.isEmpty ? "dev(off)" : "on") · cloud=\(cfg.cloud && !cfg.licenseKey.isEmpty ? "on@engine(race)" : "off(local)") · Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ("default-" + cfg.defaultMode + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
 app.run()
