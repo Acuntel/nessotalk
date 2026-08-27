@@ -132,6 +132,9 @@ struct Config {
     var transcribeUrl = "https://nessotalk-engine-production.up.railway.app/transcribe"
     // Key code of the modifier that starts and stops dictation.
     var hotkey: UInt16 = 54
+    // Producer talk key (music mode): tap -> record, tap -> the words land in
+    // the resident producer's inbox instead of the focused app. 0 disables.
+    var producerKey: UInt16 = 55
     // Privacy is the default, not an opt-in. With this on, what you said is
     // never written to disk in readable form anywhere.
     var privacyMode = true
@@ -250,6 +253,7 @@ struct Config {
             // the TRIGGER_KEYS global is initialized, and touching it here
             // dereferences uninitialized memory and segfaults at launch.
             case "HOTKEY":             if let k = UInt16(val), [54, 55, 56, 58, 59, 60, 61, 62].contains(k) { c.hotkey = k }
+            case "PRODUCER_KEY":       if let k = UInt16(val), k == 0 || [54, 55, 56, 58, 59, 60, 61, 62].contains(k) { c.producerKey = k }
             default: break
             }
         }
@@ -868,6 +872,30 @@ enum DeviceAuth {
                 try? t.run()
             }
         }.resume()
+    }
+}
+
+
+// ===================== telling the person what happened ====================
+// Silence is the worst possible answer. Someone whose payment stopped presses
+// the key, gets nothing, and concludes the app is broken rather than that their
+// subscription ended. This is the one place the app speaks up unprompted.
+var lastBlockedAlert = Date.distantPast
+func showAccessAlert(_ reason: String) {
+    // At most once every ten minutes, so a stuck key cannot spam the screen.
+    guard Date().timeIntervalSince(lastBlockedAlert) > 600 else { return }
+    lastBlockedAlert = Date()
+    DispatchQueue.main.async {
+        let a = NSAlert()
+        a.messageText = "NessoTalk is paused"
+        a.informativeText = reason
+        a.addButton(withTitle: "Open my account")
+        a.addButton(withTitle: "Not now")
+        a.alertStyle = .warning
+        NSApp.activate(ignoringOtherApps: true)
+        if a.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(URL(string: DeviceAuth.apiBase() + "/app")!)
+        }
     }
 }
 
@@ -2676,6 +2704,13 @@ final class UIController: NSObject, NSWindowDelegate {
     }
 
     @objc func hudCancel() {
+        // Producer talk: clicking the pill means "done talking" — SEND, don't
+        // discard (that's the natural instinct). Esc still truly cancels.
+        if dict.recording, dict.producerSession {
+            log("· pill clicked during producer talk — sending")
+            dict.stopAndTranscribe()
+            return
+        }
         log("· cancel pressed on HUD")
         if dict.recording { dict.cancelRecording() }
     }
@@ -3982,7 +4017,7 @@ func polishForText(_ text: String, context: String = "") -> String? {
 // Invalid/revoked/expired/seat-capped -> recording disarms (an in-flight
 // session still finishes; we never eat words mid-recording). Empty key = dev.
 let LICENSE_PUBKEY_B64 = "DgOqB8kIOGQDePmlGSFcbZVVbujNZ9CVM+XkPFSJZjw="
-let APP_VERSION = "8.26"
+let APP_VERSION = "8.27"
 var updateAvailable = ""   // newest version the server reports, empty when current
 var licenseValid = true
 let LICENSE_TOKEN_PATH = "\(HOME)/.dictation/.license_token"
@@ -4326,6 +4361,7 @@ func runWhisper(on wavPath: String, txtBase: String) -> String? {
     if !canDecodeLocally {
         guard cloudEligible else {
             log("‼️ no transcription available: the engine is unreachable or this license is not active, and this build has no local model")
+            showAccessAlert("That recording could not be transcribed. Either your subscription is not active or this Mac cannot reach the internet.")
             return nil
         }
         // No local side means there is nothing to race. Going straight to the
@@ -4699,6 +4735,34 @@ final class ChunkEngine {
     }
 }
 
+// Producer talk delivery: append one JSON line to the resident producer's inbox
+// (~/.dictation/producer/inbox.jsonl). The Claude producer tab drains it.
+func producerInboxAppend(_ text: String) {
+    let path = NSString(string: "~/.dictation/producer/inbox.jsonl").expandingTildeInPath
+    let obj: [String: Any] = ["ts": Date().timeIntervalSince1970, "heard": text, "via": "ptt"]
+    guard let d = try? JSONSerialization.data(withJSONObject: obj),
+          let s = String(data: d, encoding: .utf8) else { return }
+    let line = s + "\n"
+    if let fh = FileHandle(forWritingAtPath: path) {
+        defer { try? fh.close() }
+        fh.seekToEndOfFile()
+        fh.write(line.data(using: .utf8)!)
+    } else {
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+}
+
+// Wake the resident producer if nobody is draining the inbox: the script checks
+// cursor freshness and boots a producer tab in Terminal when needed.
+func producerWake() {
+    DispatchQueue.global(qos: .utility).async {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath:
+            NSString(string: "~/.local/bin/producer-wake").expandingTildeInPath)
+        try? p.run()
+    }
+}
+
 // ===================== Core =====================
 final class Dictation: NSObject {
     let capturer = AudioCapturer()
@@ -4726,10 +4790,18 @@ final class Dictation: NSObject {
     var commandSelection: String?   // non-nil while a command-mode recording is in flight
     var instantFinish = false       // v8.8: next stop is push-to-live (never waits on the AI)
 
+    // Producer talk (left ⌘ channel): mirrors the normal trigger's solo-press
+    // chord detection; producerSession marks the in-flight recording as talk
+    // for the resident producer, so its transcript routes to the inbox.
+    var producerTriggerDown = false
+    var producerSolo = false
+    var producerSession = false
+
     // ---- Trigger key state machine (driven by the global event monitor) ----
 
     func triggerKeyDown(flags: NSEvent.ModifierFlags) {
         triggerDown = true
+        if producerTriggerDown { producerSolo = false }  // chord vs the producer key
         // Not a solo press if any other modifier is already held (aborted chords,
         // both Cmd keys, remapper-latched modifiers). Option alone is special:
         // Option-held + Right-⌘ tap = command mode (edit the selection by voice).
@@ -4767,6 +4839,45 @@ final class Dictation: NSObject {
     // used as a real modifier) — never toggles.
     func otherKeyActivity() {
         if triggerDown { soloCandidate = false; cmdCandidate = false }
+        if producerTriggerDown { producerSolo = false }
+    }
+
+    // ---- Producer talk trigger (left ⌘ by default): same solo-press contract ----
+
+    func producerKeyDown(flags: NSEvent.ModifierFlags) {
+        producerTriggerDown = true
+        if triggerDown { soloCandidate = false; cmdCandidate = false }  // chord vs the dictation key
+        let othersHeld = flags.contains(.shift) || flags.contains(.control) || flags.contains(.option)
+            || (cfg.producerKey != cfg.hotkey && (flags.rawValue & triggerKey(forCode: cfg.hotkey).bit) != 0)
+        producerSolo = !othersHeld
+    }
+
+    func producerKeyUp() {
+        let wasSolo = producerSolo
+        producerTriggerDown = false
+        producerSolo = false
+        guard wasSolo else { return }
+        if recording {
+            guard producerSession else {
+                log("· producer key tapped during a dictation — ignored")
+                return
+            }
+            stopAndTranscribe()
+        } else {
+            if IsSecureEventInputEnabled() {
+                log("· secure input active — keyboard-chord veto degraded, toggling anyway")
+            }
+            producerSession = true
+            // He pressed to talk: the producer's voice shuts up instantly so
+            // the mic never records our own speaker output back at us.
+            let hush = Process()
+            hush.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+            hush.arguments = ["-x", "say"]
+            try? hush.run()
+            startRecording()
+            guard recording else { producerSession = false; return }
+            ui.setCaption("🎛 Talking to the producer — tap Left ⌘ or click the pill to send")
+        }
     }
 
     // Post a Cmd+<key> keystroke into the focused app (same mechanism insert()
@@ -4829,8 +4940,30 @@ final class Dictation: NSObject {
 
     func startRecording() {
         guard licenseValid else {
-            log("✕ recording blocked — license inactive. Manage it at nesso.tech")
+            // Somebody who just paid should not have to wait for the twelve
+            // hourly check-in, or restart the app, before it works again. Ask
+            // the server RIGHT NOW, and if the answer is yes, carry on into the
+            // recording they were trying to start.
+            if !cfg.licenseKey.isEmpty {
+                log("· dictation blocked — re-checking the subscription before giving up")
+                DispatchQueue.global().async {
+                    checkLicense()
+                    DispatchQueue.main.async {
+                        if licenseValid {
+                            log("✓ subscription is active again — starting the recording")
+                            playSound("Glass")
+                            self.startRecording()
+                        } else {
+                            playSound("Basso")
+                            showAccessAlert("Your subscription is not active, so dictation is switched off. Everything you set up is still here and comes straight back when it is.")
+                        }
+                    }
+                }
+                return
+            }
+            log("✕ recording blocked — no account connected")
             playSound("Basso")
+            showAccessAlert("This Mac is not connected to a NessoTalk account yet. Signing in takes one click and there is nothing to type.")
             return
         }
         // AVAudioEngine.start() can block in audio-server XPC while TCC mic
@@ -4900,6 +5033,7 @@ final class Dictation: NSObject {
         _ = capturer.stop()
         try? FileManager.default.removeItem(atPath: currentWav)
         commandSelection = nil
+        producerSession = false
         ui.recordingStopped()
         log("✕ recording canceled — nothing transcribed")
         playSound("Bottle")
@@ -4945,6 +5079,10 @@ final class Dictation: NSObject {
         // edit instruction, not a dictation.
         let cmdSelection = commandSelection
         commandSelection = nil
+        // Producer talk: this transcript is conversation for the resident
+        // producer — it lands in the inbox, never in the focused app.
+        let producerTalk = producerSession
+        producerSession = false
         // Paste + log + cleanup on main — the single exit for every path below.
         let finish: (String, String) -> Void = { [weak self] text, tag in
             DispatchQueue.main.async {
@@ -4995,6 +5133,24 @@ final class Dictation: NSObject {
         // target app) > the AI-app ask/auto flow > auto-Professional apps > raw.
         let deliver: (String) -> Void = { rawText in
             var text = rawText
+            if producerTalk {
+                DispatchQueue.main.async {
+                    if !text.isEmpty {
+                        producerInboxAppend(text)
+                        logTranscript(text, tag: " 🎛")
+                        log("🎛 → producer (session \(n)): \(text.prefix(80))")
+                        playSound("Tink")
+                        producerWake()
+                    } else {
+                        log("… empty producer talk (session \(n))")
+                        playSound("Basso")
+                    }
+                    ui.setBusy(-1)
+                    try? FileManager.default.removeItem(atPath: wav)
+                    try? FileManager.default.removeItem(atPath: "/tmp/ptt_rec_\(n).txt")
+                }
+                return
+            }
             if let sel = cmdSelection {
                 guard !text.isEmpty else {
                     log("✕ command mode: empty instruction — selection left untouched")
@@ -5549,6 +5705,11 @@ func installMonitor() {
                 let down = (event.modifierFlags.rawValue & triggerKey(forCode: cfg.hotkey).bit) != 0
                 if down { dict.triggerKeyDown(flags: event.modifierFlags) }
                 else    { dict.triggerKeyUp() }
+            } else if cfg.producerKey != 0, cfg.producerKey != cfg.hotkey,
+                      event.keyCode == cfg.producerKey {
+                let down = (event.modifierFlags.rawValue & triggerKey(forCode: cfg.producerKey).bit) != 0
+                if down { dict.producerKeyDown(flags: event.modifierFlags) }
+                else    { dict.producerKeyUp() }
             } else {
                 // some other modifier toggled while trigger may be held -> it's a chord
                 dict.otherKeyActivity()
@@ -5563,7 +5724,9 @@ func installMonitor() {
             dict.otherKeyActivity()
         }
     }
-    log("✓ key monitor armed — press Right ⌘ to toggle dictation")
+    log("✓ key monitor armed — \(triggerKey(forCode: cfg.hotkey).name) = dictation"
+        + (cfg.producerKey != 0 && cfg.producerKey != cfg.hotkey
+           ? ", \(triggerKey(forCode: cfg.producerKey).name) = producer talk" : ""))
 }
 
 // Without Accessibility trust, macOS delivers flagsChanged but WITHHOLDS keyDown
@@ -5608,5 +5771,5 @@ let licTimer = Timer(timeInterval: 12 * 3600, repeats: true) { _ in
 }
 RunLoop.main.add(licTimer, forMode: .common)
 
-log("▶ NessoTalk v8.26 (one-button pill · browser sign-in · engine-only transcription · HUD always shows · 3-channel mic fix · smarter modes + keyword editor · decode race · cloud engine · self-tuning code modes · no-click = \(cfg.defaultMode)) up. license=\(cfg.licenseKey.isEmpty ? "dev(off)" : "on") · cloud=\(cfg.cloud && !cfg.licenseKey.isEmpty ? "on@engine(race)" : "off(local)") · Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ("default-" + cfg.defaultMode + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
+log("▶ NessoTalk v8.27 (pays and it works · one-button pill · browser sign-in · engine-only transcription · HUD always shows · 3-channel mic fix · smarter modes + keyword editor · decode race · cloud engine · self-tuning code modes · no-click = \(cfg.defaultMode)) up. license=\(cfg.licenseKey.isEmpty ? "dev(off)" : "on") · cloud=\(cfg.cloud && !cfg.licenseKey.isEmpty ? "on@engine(race)" : "off(local)") · Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ("default-" + cfg.defaultMode + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
 app.run()

@@ -15,7 +15,7 @@ import { adminDb } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 // Bump when a new build is published to assets/downloads.
-const LATEST_VERSION = "8.26";
+const LATEST_VERSION = "8.27";
 
 
 
