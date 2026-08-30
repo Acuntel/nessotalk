@@ -115,7 +115,7 @@ export function FinalCTA() {
         Start talking free
       </Link>
       <p className="mt-4 text-sm text-muted">
-        $4.99 a month after that. Cancel by email and it is handled the same day.
+        $5 a month after that. Cancel by email and it is handled the same day.
       </p>
     </section>
   );

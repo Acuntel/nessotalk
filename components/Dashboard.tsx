@@ -84,7 +84,7 @@ export default function Dashboard({
         {!hasAccess && (
           <div className="mt-8 rounded-3xl border-2 border-rose bg-card p-8 shadow-glow">
             <h2 className="font-display text-2xl text-ink">
-              Switch it back on for $4.99 a month
+              Switch it back on for $5 a month
             </h2>
             <p className="mt-2 text-sm leading-6 text-muted">
               Founding price, locked for as long as you stay subscribed. It takes
@@ -95,7 +95,7 @@ export default function Dashboard({
               onClick={subscribe}
               className="mt-6 w-full rounded-xl bg-rosedark py-4 text-lg font-semibold text-white transition hover:bg-rosepress"
             >
-              Subscribe for $4.99 a month
+              Subscribe for $5 a month
             </button>
           </div>
         )}
@@ -141,7 +141,7 @@ export default function Dashboard({
                 : "Keep it after the free fortnight"}
             </h2>
             <p className="mt-2 text-sm leading-6 text-muted">
-              $4.99 a month, which is about a third of what the well known ones
+              $5 a month, which is about a third of what the well known ones
               charge. Founding price, locked for as long as you stay subscribed.
               Subscribing now does not shorten your free days.
             </p>
@@ -149,7 +149,7 @@ export default function Dashboard({
               onClick={subscribe}
               className="mt-5 w-full rounded-xl border border-rosedark bg-transparent py-3.5 font-semibold text-rosedark transition hover:bg-rosedark hover:text-white"
             >
-              Subscribe for $4.99 a month
+              Subscribe for $5 a month
             </button>
           </div>
         )}

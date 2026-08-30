@@ -42,7 +42,7 @@ export default function Pricing() {
           </span>
           <div className="text-sm font-medium text-ink">NessoTalk</div>
           <div className="mt-2 font-display text-5xl text-ink">
-            $4.99<span className="text-lg text-muted">/mo</span>
+            $5<span className="text-lg text-muted">/mo</span>
           </div>
           <ul className="mt-6 space-y-3 text-sm text-ink">
             {OURS.map((f) => (
@@ -80,7 +80,7 @@ const QA = [
   ],
   [
     "What happens after the 14-day trial?",
-    "Your trial starts the moment you create an account, and no card is needed. When it ends you can subscribe for $4.99 a month. Founding-member pricing is locked for as long as you stay subscribed.",
+    "Your trial starts the moment you create an account, and no card is needed. When it ends you can subscribe for $5 a month. Founding-member pricing is locked for as long as you stay subscribed.",
   ],
   [
     "Can I cancel anytime?",
