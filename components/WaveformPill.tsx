@@ -58,7 +58,7 @@ export default function WaveformPill() {
           Summarize
         </span>
         <span className="rounded-full bg-ink/[0.06] px-4 py-1.5 text-xs font-medium text-muted">
-          Normal
+          Straight Transcription
         </span>
         <span className="rounded-full bg-rose/30 px-4 py-1.5 text-xs font-bold text-ink ring-1 ring-rose/60">
           Professional

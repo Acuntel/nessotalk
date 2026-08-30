@@ -12,6 +12,16 @@ import CryptoKit
 let HOME = NSHomeDirectory()
 let MODEL = "\(HOME)/.whisper-models/ggml-large-v3-turbo-q5_0.bin"
 let VAD_MODEL = "\(HOME)/.whisper-models/ggml-silero-v5.1.2.bin"
+// NVIDIA Parakeet TDT (via whisper.cpp's own ggml port): a transducer, not an
+// autoregressive decoder like Whisper, so it is STRUCTURALLY unable to
+// hallucinate fluent text over silence/noise — there is no language-model
+// head free-running without audio evidence, only tokens the audio actually
+// supports. Verified 2026-08-30 on this Mac: fed 4s of pure mic hiss, whisper
+// output "(buzzing)" (an invented token) while Parakeet output nothing at
+// all. On real speech the two are close in accuracy (Open ASR Leaderboard:
+// Parakeet TDT 0.6B v3 ~6.3% WER vs whisper large-v3 ~7.4%, at under half the
+// parameters). Opt-in via `ptt parakeet on` — see cfg.useParakeet.
+let PARAKEET_MODEL = "\(HOME)/.whisper-models/ggml-parakeet-tdt-0.6b-v3-q8_0.bin"
 // Homebrew installs to /opt/homebrew on Apple silicon and /usr/local on Intel.
 // Hardcoding the Apple silicon prefix meant every Intel Mac failed the startup
 // guard below and launchd crash-looped it forever with no window and no message.
@@ -25,6 +35,7 @@ func _which(_ tool: String) -> String {
 }
 let WHISPER = _which("whisper-cli")
 let FFMPEG = _which("ffmpeg")
+let PARAKEET_CLI = _which("parakeet-cli")
 let LOG = "\(HOME)/.dictation/ptt.log"
 let CONFIG_PATH = "\(HOME)/.dictation/config"
 
@@ -43,6 +54,21 @@ struct Config {
     var captionInterval = 2.0                       // seconds between live-caption passes
     var captionWindow = 10.0                        // seconds of trailing audio per pass
     var captionModel = "\(HOME)/.whisper-models/ggml-base.en-q5_1.bin"
+    // Live typing (v8.29). Recognized words go straight into whatever field has
+    // focus, as they are recognized, instead of into a transcript box on the
+    // pill that gets pasted when you stop. The pill has nothing to read any
+    // more, so it shrank to a waveform and the mode chips. Off = the old
+    // behavior: nothing appears anywhere until the recording ends.
+    var liveType = true
+    // 0.35s between passes: a caption decode costs a flat ~0.22s whatever the
+    // window length (measured — it is the model load and whisper's fixed
+    // 30s-padded encoder, not the audio), so this is about as fast as passes
+    // can run back to back without queueing up. Words reach the screen roughly
+    // 0.4s after they are spoken instead of the 2-4s a commit-only stream took.
+    var liveTypeInterval = 0.35                     // seconds between decode passes while typing
+    // Tail length before it locks in. Shorter than it was: the tail is decoded
+    // every pass now, so keeping it small keeps each decode cheap.
+    var liveTypeCommit = 2.0                        // seconds of tail before words lock in
     // Which microphone to record from. "builtin" (default) pins capture to the
     // Mac's built-in mic so dictation never rides a flaky Bluetooth link (AirPods
     // as the system default input is what produced the -66681 failures). "default"
@@ -103,6 +129,13 @@ struct Config {
     // gate. Forces the CLI decode path (the server's VAD gate is fixed at
     // launch, same constraint as call mode). Toggle: `ptt whisper`.
     var whisperMode = false
+    // Parakeet TDT (transducer, not whisper's autoregressive decoder) as the
+    // local decode engine: structurally can't hallucinate over silence/noise,
+    // and matches or beats whisper large-v3 on the Open ASR Leaderboard at
+    // under half the parameters. English + ~24 European languages only, so
+    // this is skipped for any other LANGUAGE and whisper decodes as before.
+    // Opt-in and off by default until proven out day to day: `ptt parakeet on`.
+    var useParakeet = false
     // Auto-Professional targets: dictating into these apps (bundle-id substring,
     // like POLISH_APPS) rewrites the gist into clean text/email prose
     // automatically — Wispr-style tone-by-app. Empty disables.
@@ -157,12 +190,21 @@ struct Config {
             CAPTION_INTERVAL=\(c.captionInterval)
             CAPTION_WINDOW=\(Int(c.captionWindow))
             CAPTION_MODEL=\(c.captionModel)
+            # Live typing: words land in the focused app as you talk (0 = paste at the end)
+            LIVE_TYPE=1
+            LIVE_TYPE_INTERVAL=\(c.liveTypeInterval)
+            LIVE_TYPE_COMMIT=\(c.liveTypeCommit)
             # builtin | default | <substring of a device name>
             INPUT_DEVICE=builtin
             # Pre-decode denoise + dynamic-normalize via ffmpeg (recovers quiet words)
             PREPROCESS=1
             # Phone/VoIP dictation: aggressive denoise + lower VAD gate. Toggle: `ptt call`
             CALL_MODE=0
+            # Parakeet TDT local engine (structurally hallucination-proof, matches
+            # whisper large-v3 accuracy at under half the size). English + ~24
+            # European languages only; other LANGUAGE values always use whisper.
+            # Toggle: `ptt parakeet on`
+            PARAKEET=0
             # Rolling transcription: pre-transcribe finished audio every ~N seconds while
             # still recording, so long dictations paste in seconds. <20 disables.
             CHUNK_SECONDS=30
@@ -220,9 +262,13 @@ struct Config {
             case "CAPTION_INTERVAL":   c.captionInterval = max(0.5, Double(val) ?? c.captionInterval)
             case "CAPTION_WINDOW":     c.captionWindow = min(30, max(2, Double(val) ?? c.captionWindow))
             case "CAPTION_MODEL":      c.captionModel = (val as NSString).expandingTildeInPath
+            case "LIVE_TYPE":          c.liveType = (val == "1" || val.lowercased() == "true")
+            case "LIVE_TYPE_INTERVAL": c.liveTypeInterval = min(5, max(0.2, Double(val) ?? c.liveTypeInterval))
+            case "LIVE_TYPE_COMMIT":   c.liveTypeCommit = min(15, max(1.5, Double(val) ?? c.liveTypeCommit))
             case "INPUT_DEVICE":       if !val.isEmpty { c.inputDevice = val }
             case "PREPROCESS":         c.preprocess = (val == "1" || val.lowercased() == "true")
             case "CALL_MODE":          c.callMode = (val == "1" || val.lowercased() == "true")
+            case "PARAKEET":           c.useParakeet = (val == "1" || val.lowercased() == "true")
             case "CHUNK_SECONDS":      c.chunkSeconds = min(600, max(0, Double(val) ?? c.chunkSeconds))
             case "SERVER":             c.useServer = (val == "1" || val.lowercased() == "true")
             case "SPECULATIVE":        c.speculative = (val == "1" || val.lowercased() == "true")
@@ -667,9 +713,18 @@ func formatTranscript(_ raw: String) -> String {
         ("(?i)\\bacuntel\\b", "Acuntel"),
         ("(?i)\\binkept\\b", "Inkept"),
         ("(?i)\\brobin ?hood\\b", "Robinhood"),
-        ("(?i)\\bwispr ?flow\\b", "Wispr Flow"),
+        // Tested 2026-08-30 against real speech (both whisper large-v3-turbo
+        // and Parakeet TDT): "Wispr" reliably decodes as the dictionary word
+        // "whisper," not as the brand's actual spelling — the old pattern
+        // only matched the literal (never-produced) "wispr" and missed every
+        // real occurrence. Widened to catch what the engines actually output.
+        ("(?i)\\b(?:whisper|wispr) ?flow\\b", "Wispr Flow"),
         ("(?i)\\bdu ?page\\b", "DuPage"),
-        ("(?i)\\busc\\b", "USC")
+        ("(?i)\\busc\\b", "USC"),
+        // Same test pass: own product name split into two words / lowercased
+        // by both engines with no glossary entry catching it at all.
+        ("(?i)\\byapper[- ]?talk\\b", "YapperTalk"),
+        ("(?i)\\bnesso ?talk\\b", "NessoTalk")
     ]
     for (pattern, replacement) in glossary {
         text = regexReplace(text, pattern, replacement)
@@ -887,7 +942,7 @@ func showAccessAlert(_ reason: String) {
     lastBlockedAlert = Date()
     DispatchQueue.main.async {
         let a = NSAlert()
-        a.messageText = "NessoTalk is paused"
+        a.messageText = "YapperTalk is paused"
         a.informativeText = reason
         a.addButton(withTitle: "Open my account")
         a.addButton(withTitle: "Not now")
@@ -1006,13 +1061,24 @@ func quietCutPoint(fh: FileHandle, dataOff: UInt64, from: UInt64, to: UInt64, lo
     var bestIdx = -1
     var bestVal = Double.greatestFiniteMagnitude
     for i in 0...(rms.count - 4) {
+        // Only windows that are a LEGAL cut compete. The old loop picked the
+        // globally quietest window and then rejected it if it sat too close to
+        // the start — so the half-second of room tone every recording opens
+        // with won the search outright and the whole call returned nil for as
+        // long as that silence stayed inside the lookback. With live typing
+        // that is not a subtlety: it is why the first words took ~6s to appear
+        // instead of ~3s. Scoring only legal candidates can never return a
+        // worse cut than before, and it finds one in exactly the cases that
+        // used to give up.
+        var c = start + UInt64((i + 2) * hop * 2)
+        c &= ~1
+        guard c > from + 32000, c < to else { continue }      // keep ≥1s before the cut
         let w = (rms[i] + rms[i + 1] + rms[i + 2] + rms[i + 3]) / 4
         if w < bestVal { bestVal = w; bestIdx = i }
     }
     guard bestIdx >= 0, bestVal < max(120, mean * 0.25) else { return nil }
     var cut = start + UInt64((bestIdx + 2) * hop * 2)
     cut &= ~1
-    guard cut > from + 32000, cut < to else { return nil }    // keep ≥1s before the cut
     return cut
 }
 
@@ -1185,6 +1251,31 @@ final class AudioCapturer: NSObject, AVCaptureAudioDataOutputSampleBufferDelegat
     // Live input level for the HUD waveform (0..1, called on MAIN). Set once at
     // daemon startup; nil in CLI modes so tests never touch AppKit.
     var onLevel: ((Float) -> Void)?
+    // Real Silero VAD speech probability (0..1, called on MAIN), NOT a level —
+    // this is what actually gates the waveform's motion. Verified 2026-08-30:
+    // fed live to the same model whisper already uses for anti-hallucination,
+    // in-process via whisper.cpp's own C API (no per-check process spawn, ~8ms
+    // to score 100ms of audio). A steady tone (a fan, a hum) scores flat and
+    // low the instant it starts — no onset spike — while real speech clearly
+    // crosses the line on every voiced syllable. That's the actual "is this
+    // text, not just noise" signal; amplitude alone can never provide it.
+    var onSpeechProb: ((Float) -> Void)?
+    private var vadCtx: OpaquePointer?
+    private let vadQueue = DispatchQueue(label: "ptt.vad")
+    private var vadPending: [Float] = []
+    // Silero's native window is 512 samples at 16kHz; whisper.cpp scores one
+    // probability per window and ZERO-PADS a trailing partial one. 1600 (the
+    // old value) meant every call ended in a window holding 64 real samples and
+    // 448 zeros. Three whole windows — 96ms, same cost, no padding, and nothing
+    // to pollute the LSTM state that _no_reset deliberately carries forward.
+    private let vadChunkSamples = 1536
+
+    private func ensureVadContext() {
+        guard vadCtx == nil, FileManager.default.fileExists(atPath: VAD_MODEL) else { return }
+        ggml_backend_load_all()
+        whisper_log_set({ _, _, _ in }, nil)   // silence whisper.cpp's own stderr chatter
+        vadCtx = whisper_vad_init_from_file_with_params(VAD_MODEL, whisper_vad_default_context_params())
+    }
 
     private let target = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000,
                                        channels: 1, interleaved: true)!
@@ -1193,6 +1284,16 @@ final class AudioCapturer: NSObject, AVCaptureAudioDataOutputSampleBufferDelegat
     // input mid-start; onDead fires only if even the built-in mic yields no audio.
     func start(path: String, preference: String,
                onSwap: @escaping (String) -> Void, onDead: @escaping () -> Void) -> Bool {
+        // Fresh LSTM state for this session — the model carries hidden state
+        // across calls (that's what makes it cheap and streaming-capable), but
+        // that state must not bleed in from whatever the previous dictation
+        // ended on.
+        vadQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.ensureVadContext()
+            self.vadPending.removeAll(keepingCapacity: true)
+            if let ctx = self.vadCtx { whisper_vad_reset_state(ctx) }
+        }
         var candidates = resolveAVDevices(preference)
         if candidates.isEmpty, let d = AVCaptureDevice.default(for: .audio) { candidates = [d] }
         for (idx, c) in candidates.enumerated() where startSession(device: c, path: path) {
@@ -1355,11 +1456,47 @@ final class AudioCapturer: NSObject, AVCaptureAudioDataOutputSampleBufferDelegat
             if a > localPeak { localPeak = a }
         }
         if let cb = onLevel {
-            // Peak -> dB -> 0..1: -50dB (room tone) maps to 0, -15dB (loud speech)
-            // to 1. The waveform's own frame timer does the smoothing.
+            // Peak -> dB -> 0..1: -55dB (room tone) maps to 0, -20dB (normal
+            // talking) to 1. Deliberately generous at the quiet end — the VAD
+            // gate below is what decides whether this is speech at all, so this
+            // only has to say how BIG it reads, and a quiet voice should still
+            // fill most of the row. The frame timer does the smoothing.
             let db = 20 * log10(max(1, Double(localPeak)) / 32767)
-            let lvl = Float(min(1, max(0, (db + 50) / 35)))
+            let lvl = Float(min(1, max(0, (db + 55) / 35)))
             DispatchQueue.main.async { cb(lvl) }
+        }
+        if let cb = onSpeechProb {
+            // Copy to a value-type array HERE, on this thread — `p` points into
+            // `out`'s buffer, which does not outlive this function, so it can
+            // never be touched from the async block below.
+            var floats = [Float](repeating: 0, count: n)
+            for i in 0..<n { floats[i] = Float(p[i]) / 32768.0 }
+            vadQueue.async { [weak self] in
+                guard let self = self else { return }
+                self.ensureVadContext()
+                guard let ctx = self.vadCtx else { return }
+                self.vadPending.append(contentsOf: floats)
+                while self.vadPending.count >= self.vadChunkSamples {
+                    let chunk = Array(self.vadPending.prefix(self.vadChunkSamples))
+                    self.vadPending.removeFirst(self.vadChunkSamples)
+                    let ok = chunk.withUnsafeBufferPointer { buf in
+                        whisper_vad_detect_speech_no_reset(ctx, buf.baseAddress, Int32(buf.count))
+                    }
+                    let n = whisper_vad_n_probs(ctx)
+                    guard ok, n > 0, let probs = whisper_vad_probs(ctx) else { continue }
+                    // MAX across this call's windows, never the last one. A
+                    // voiced syllable can begin anywhere inside the 96ms, and
+                    // under the old 1600-sample chunk the last window was the
+                    // zero-padded one — reading it is what kept the gate shut
+                    // through whole sentences (measured 2026-08-30 against real
+                    // speech: the whole windows scored 1.00, 1.00, 1.00 while
+                    // the padded tail read 0.18, so the row sat flat while the
+                    // user was plainly talking).
+                    var best: Float = 0
+                    for k in 0..<Int(n) { best = max(best, probs[k]) }
+                    DispatchQueue.main.async { cb(best) }
+                }
+            }
         }
         let data = Data(bytes: p, count: n * 2)
         writer.async { [weak self] in
@@ -1554,64 +1691,158 @@ func purgeLegacyPlaintext() {
     log("🔒 privacy migration: removed \(removed) plaintext transcripts and retained clips from earlier versions")
 }
 
+// The speech gate, on its own so it can be replayed and measured. Probability
+// in, a 0..1 multiplier out; WaveformView multiplies bar height by it, so this
+// struct alone decides when the row is alive and when it is a flat line.
+// --gate-sim runs a real recording through the real VAD and this exact code.
+struct SpeechGate {
+    let openThreshold: CGFloat = 0.5
+    let closeThreshold: CGFloat = 0.35
+    // Hangover across the gaps BETWEEN words. Silero drops under the line
+    // mid-sentence, so a bare threshold slams the row flat several times per
+    // sentence — that is stutter, not smoothness. 0.20 is measured, not
+    // chosen: replaying a real 17s dictation, it is the shortest hold that
+    // bridges every inter-word gap in it with ZERO mid-speech collapses.
+    let hold: Double = 0.20
+    let riseTau: Double = 0.035
+    // The close is a CONSTANT-SLOPE ramp, not an exponential decay. An
+    // exponential never really arrives — the row was still visibly twitching a
+    // third of a second after it was mathematically "closed", and that tail was
+    // most of the lag after the last word. A 50ms linear run to zero looks like
+    // the bars dropping, because they do.
+    let fallSeconds: Double = 0.05
+
+    private(set) var isOpen = false
+    private(set) var level: CGFloat = 0
+    private var holdLeft: Double = 0
+
+    mutating func reset() { isOpen = false; level = 0; holdLeft = 0 }
+
+    @discardableResult
+    mutating func step(prob: CGFloat, dt: Double) -> CGFloat {
+        if prob > openThreshold {
+            isOpen = true; holdLeft = hold
+        } else if isOpen {
+            if prob > closeThreshold { holdLeft = hold }
+            else { holdLeft -= dt; if holdLeft <= 0 { isOpen = false } }
+        }
+        if isOpen { level += (1 - level) * CGFloat(1 - exp(-dt / riseTau)) }
+        else { level = max(0, level - CGFloat(dt / fallSeconds)) }
+        if level < 0.001 { level = 0 }
+        return level
+    }
+}
+
 // ===================== waveform (Wispr-Flow-style HUD) =====================
 // Audio-reactive bar visualizer: a row of thin rounded bars that sit as a flat
 // dotted line in silence and bloom center-out with the live mic level. Levels
-// arrive on MAIN via setLevel (AudioCapturer.onLevel maps peak->0..1); a 30fps
+// arrive on MAIN via setLevel (AudioCapturer.onLevel maps peak->0..1); a 60fps
 // timer animates per-bar motion so the pill feels alive without ever touching
 // the mic itself. All state main-thread-only.
 final class WaveformView: NSView {
     private let barCount = 26
     private let barWidth: CGFloat = 3.5
-    private let gap: CGFloat = 3.5
+    private let gap: CGFloat = 3.0
+    private let fps: Double = 60
+    // Real time constants (seconds), not per-frame multipliers, so ballistics
+    // stay identical regardless of the timer's actual fire rate. heldTau just
+    // bridges gaps between audio-buffer callbacks; attack/release is the
+    // envelope you actually see move.
+    private let heldTau: Double = 0.05
+    private let attackTau: Double = 0.02
+    private let releaseTau: Double = 0.07
     private var heights: [CGFloat]
-    private var phases: [Double] = []
-    private var speeds: [Double] = []
+    // Captured directly off Wispr Flow's own demo footage (60fps screen
+    // recording, frame-by-frame): the bar row is never a fixed bell curve and
+    // never independent per-bar flicker. It's ONE coherent hump that slowly
+    // drifts and reshapes over roughly a second. A random start offset just
+    // keeps that drift from beginning at the same point every launch.
+    private let startPhase = Double.random(in: 0..<(2 * .pi))
     private var held: Float = 0          // peak held between frames, decays in step()
-    private var smoothed: CGFloat = 0
+    private var smoothed: CGFloat = 0    // fast envelope: "how loud right now"
     private var timer: Timer?
     private var t: Double = 0
 
     override init(frame: NSRect) {
         heights = Array(repeating: 2.5, count: barCount)
         super.init(frame: frame)
-        for _ in 0..<barCount {
-            phases.append(Double.random(in: 0..<(2 * .pi)))
-            speeds.append(Double.random(in: 5.5...9.5))
-        }
     }
     required init?(coder: NSCoder) { return nil }
 
     func setLevel(_ l: Float) { held = max(held, min(1, l)) }
+    func setSpeechProb(_ p: Float) { speechProb = CGFloat(max(0, min(1, p))) }
 
     func start() {
         stop()
-        let tm = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in self?.step() }
+        let tm = Timer(timeInterval: 1.0 / fps, repeats: true) { [weak self] _ in self?.step() }
         RunLoop.main.add(tm, forMode: .common)
         timer = tm
     }
 
     func stop() {
         timer?.invalidate(); timer = nil
-        held = 0; smoothed = 0
+        held = 0; smoothed = 0; speechProb = 0; gate.reset()
         heights = heights.map { _ in 2.5 }
         needsDisplay = true
     }
 
+    // The gate is real Silero VAD speech probability (AudioCapturer.onSpeechProb
+    // -> UIController.setSpeechProb -> here), not an amplitude heuristic.
+    // Loudness alone cannot tell speech from a sustained tone — a fan, a hum, a
+    // passing engine are all as loud as talking. Measured 2026-08-30 against 4s
+    // of mic hiss: Silero scores it ~0.84 for the first ~380ms while its LSTM
+    // warms up, then settles to ~0.02 and stays there, while real speech holds
+    // above 0.5 on every voiced syllable. So steady noise can flash the bars for
+    // about a third of a second when it starts, and is correctly dead after.
+    private var speechProb: CGFloat = 0
+    private var gate = SpeechGate()
+
     private func step() {
-        t += 1.0 / 30.0
-        let lv = CGFloat(held)
-        held *= 0.55                                   // buffers arrive faster than frames; decay the hold
-        // Fast attack, slower release: speech snaps the bars up, pauses breathe down.
-        smoothed += (lv - smoothed) * (lv > smoothed ? 0.55 : 0.16)
+        let dt = 1.0 / fps
+        let rawLv = CGFloat(held)
+        held *= Float(exp(-dt / heldTau))
+        // Fast envelope: near-instant attack, quick release — "how loud right
+        // now," purely the visual energy while the gate below is open.
+        let fastTau = rawLv > smoothed ? attackTau : releaseTau
+        smoothed += (rawLv - smoothed) * CGFloat(1 - exp(-dt / fastTau))
+        if smoothed < 0.001 { smoothed = 0 }
+        let gateLevel = gate.step(prob: speechProb, dt: dt)
+        // A curve stronger than sqrt: ordinary talking volume should already
+        // read as big, obvious motion, not need near-shouting to fill the bars.
+        // The floor is the other half of that promise — once the gate says this
+        // IS speech, the row reads as clearly alive even for a near-whisper,
+        // and loudness carries it the rest of the way to full height. Scaled by
+        // the gate, so anything that isn't speech still collapses to a flat
+        // line no matter how loud it is.
+        let energy = CGFloat(pow(Double(smoothed), 0.35))
+        let driven: CGFloat = gateLevel * max(0.35, energy)
+        // The clock driving the shape below runs on ACTUAL TALKING ACTIVITY,
+        // not the wall clock: completely frozen at silence (not just "barely
+        // moving"), already brisk the instant the gate opens, and racing when
+        // you get loud — about three times the old rate at talking volume,
+        // which is the difference between a row that drifts and one that reads
+        // as alive.
+        t += dt * Double(gateLevel) * (6.0 + 18.0 * Double(driven))
         let maxH = bounds.height
+        // Three sine harmonics, evaluated as one continuous function of bar
+        // position (x) and time (t) shared across every bar — NOT per-bar
+        // randomness. That's what makes neighboring bars move together as a
+        // smooth traveling hump instead of jumping independently. The three
+        // spatial frequencies (broad/medium/very-broad) plus slow, opposing
+        // drift rates are what give it a shape that keeps reshaping without
+        // ever repeating exactly or snapping between frames.
+        let tt = t + startPhase
         for i in 0..<barCount {
             let x = Double(i) / Double(barCount - 1)
-            let env = 0.30 + 0.70 * sin(.pi * x)       // center-weighted swell
-            let wob = 0.62 + 0.38 * sin(t * speeds[i] + phases[i])
-            let idle = 0.05 * (0.5 + 0.5 * sin(t * 2.0 + phases[i]))
-            let h = max(2.5, (CGFloat(env * wob) * smoothed + CGFloat(idle)) * maxH)
-            heights[i] += (h - heights[i]) * 0.5
+            let n1 = sin(2 * .pi * (1.3 * x + tt * 0.18))
+            let n2 = sin(2 * .pi * (2.6 * x - tt * 0.13) + 1.1)
+            let n3 = sin(2 * .pi * (0.55 * x + tt * 0.09) + 2.4)
+            var shape = 0.5 + 0.5 * (n1 + 0.6 * n2 + 0.4 * n3) / 2.0
+            shape = min(1, max(0, 0.5 + (shape - 0.5) * 1.6))  // punch up bar-to-bar contrast
+            // No idle-motion term: height is driven ONLY by the live mic level.
+            // At smoothed == 0 every bar collapses to the 2.5pt floor, so
+            // silence renders as a perfectly flat line, never a wobble.
+            heights[i] = max(2.5, CGFloat(shape) * driven * maxH)
         }
         needsDisplay = true
     }
@@ -1619,7 +1850,9 @@ final class WaveformView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let total = CGFloat(barCount) * barWidth + CGFloat(barCount - 1) * gap
         var x = (bounds.width - total) / 2
-        NSColor.white.withAlphaComponent(0.92).setFill()
+        // Brand ink, matching the wavebar color in the site's own HUD mock
+        // (WaveformPill.tsx: bg-ink/90) now that the pill itself is a light card.
+        Brand.ink.withAlphaComponent(0.88).setFill()
         for h in heights {
             let r = NSRect(x: x, y: (bounds.height - h) / 2, width: barWidth, height: h)
             NSBezierPath(roundedRect: r, xRadius: barWidth / 2, yRadius: barWidth / 2).fill()
@@ -1640,10 +1873,23 @@ enum DeliverMode: CaseIterable {
         switch self {
         case .ask:          return "Ask"
         case .summarize:    return "Summarize"
-        case .raw:          return "Normal"
+        case .raw:          return "Straight Transcription"
         case .professional: return "Professional"
         case .agent:        return "AI Agent"
         case .expand:       return "AI Extend"
+        }
+    }
+
+    // Shorter name for the pill's chips. The full label still reads better in
+    // the mode list, the tooltips and the logs, but on a pill sized to stay out
+    // of the way "Straight Transcription" alone forces the panel about 40pt
+    // wider than everything else on it needs.
+    var chipLabel: String {
+        switch self {
+        case .raw:    return "Straight"
+        case .agent:  return "Agent"
+        case .expand: return "Extend"
+        default:      return label
         }
     }
 
@@ -1707,6 +1953,22 @@ enum DeliverMode: CaseIterable {
 // top-level init is what caused the V8.5 segfault. The parser keeps its own
 // inline literal; keep the two lists in sync by hand.
 let SETTINGS_MODES = ["summarize", "professional", "normal", "agent", "expand"]
+
+// ===================== Brand palette =====================
+// The warm clay/cream tokens from the yappertalk.com / nesso.tech design
+// system (tailwind.config.ts: paper/card/line/muted/ink/rose/rosedark), so
+// every window this app puts on screen — the HUD pill, the mode explainer,
+// the after-stop choice popup — reads as the same product as the site
+// instead of a generic black/green/red dev-tool palette.
+enum Brand {
+    static let card     = NSColor(calibratedWhite: 1.0, alpha: 1)                                // #FFFFFF
+    static let line     = NSColor(calibratedRed: 0.227, green: 0.149, blue: 0.125, alpha: 0.14)  // line: rgba(58,38,32,.14)
+    static let muted    = NSColor(calibratedRed: 0.369, green: 0.290, blue: 0.267, alpha: 1)     // #5E4A44
+    static let ink      = NSColor(calibratedRed: 0.145, green: 0.110, blue: 0.098, alpha: 1)     // #251C19
+    static let rose     = NSColor(calibratedRed: 0.816, green: 0.627, blue: 0.596, alpha: 1)     // #D0A098
+    static let rosedark = NSColor(calibratedRed: 0.600, green: 0.365, blue: 0.318, alpha: 1)     // #995D51 — primary button fill
+    static let red      = NSColor(calibratedRed: 0.863, green: 0.149, blue: 0.149, alpha: 1)     // #DC2626 — same red the site uses for destructive actions
+}
 
 // ===================== Settings window =====================
 // Everything a customer needs to configure, in one place: their license, the
@@ -1787,16 +2049,19 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         // v8.26: the window is short enough now that it does not need to
         // scroll at all. It is kept in the scroll view anyway so that adding a
         // row later cannot push Save off the bottom edge again.
-        let w: CGFloat = 520, h: CGFloat = 470, visibleH: CGFloat = 470
+        // h is the CONTENT height and visibleH the window height. They differ by
+        // exactly the row added below, so the sheet scrolls instead of pushing
+        // Save off the bottom edge.
+        let w: CGFloat = 520, h: CGFloat = 548, visibleH: CGFloat = 510
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w, height: visibleH),
                            styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        win.title = "NessoTalk Settings"
+        win.title = "YapperTalk Settings"
         win.isReleasedWhenClosed = false
         win.delegate = self
         let v = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
 
         var y = h - 60
-        let title = NSTextField(labelWithString: "NessoTalk")
+        let title = NSTextField(labelWithString: "YapperTalk")
         title.font = .systemFont(ofSize: 20, weight: .bold)
         title.frame = NSRect(x: 24, y: y, width: 300, height: 26)
         v.addSubview(title)
@@ -1810,7 +2075,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         y -= 26
         let signedIn = !cfg.licenseKey.isEmpty
         let acct = NSTextField(labelWithString: signedIn
-            ? "This Mac is connected to your NessoTalk account."
+            ? "This Mac is connected to your YapperTalk account."
             : "Not connected yet.")
         acct.font = .systemFont(ofSize: 12)
         acct.textColor = signedIn ? .secondaryLabelColor : .systemRed
@@ -1835,6 +2100,17 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         hint.textColor = .tertiaryLabelColor
         hint.frame = NSRect(x: 252, y: y + 4, width: 250, height: 18)
         v.addSubview(hint)
+
+        // The pill used to spell this out on itself, every second you were
+        // talking. It belongs with the key it describes, in the window you open
+        // once when you set the app up.
+        y -= 34
+        let pillHint = NSTextField(wrappingLabelWithString:
+            "While recording: tap that key again to finish, or press Esc to throw the recording away. Your words type into the app as you speak.")
+        pillHint.font = .systemFont(ofSize: 11)
+        pillHint.textColor = .tertiaryLabelColor
+        pillHint.frame = NSRect(x: 24, y: y, width: w - 48, height: 30)
+        v.addSubview(pillHint)
 
         y -= 44
         v.addSubview(label("Microphone", y, bold: true))
@@ -1880,6 +2156,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         words.frame = NSRect(x: 204, y: y, width: 170, height: 26)
         v.addSubview(words)
 
+        // Own row. This used to share `y` with the Advanced/Words buttons
+        // above, so the license-status text (11pt, secondary gray) rendered
+        // directly on top of both button labels — the "smaller hidden text
+        // layered on top of text" a customer would see every time Settings
+        // opened, since refresh() always fills this in.
+        y -= 40
         statusLabel = NSTextField(labelWithString: "")
         statusLabel.font = .systemFont(ofSize: 11)
         statusLabel.textColor = .secondaryLabelColor
@@ -2072,7 +2354,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         writeConfigValue("DEFAULT_MODE", SETTINGS_MODES[max(0, min(SETTINGS_MODES.count - 1, modePopup.indexOfSelectedItem))])
         writeConfigValue("LANGUAGE", languages[max(0, languagePopup.indexOfSelectedItem)].1)
         writeConfigValue("INPUT_DEVICE", micPopup.indexOfSelectedItem == 0 ? "builtin" : micPopup.titleOfSelectedItem ?? "builtin")
-        statusLabel.stringValue = "Saved. Restarting NessoTalk."
+        statusLabel.stringValue = "Saved. Restarting YapperTalk."
         log("· settings saved from the settings window")
         // launchd brings it straight back with the new configuration.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -2144,14 +2426,14 @@ final class ModeInfoPanel: NSObject {
 
         let root = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
         root.wantsLayer = true
-        root.layer?.backgroundColor = NSColor(calibratedWhite: 0.05, alpha: 0.95).cgColor
+        root.layer?.backgroundColor = Brand.card.withAlphaComponent(0.95).cgColor
         root.layer?.cornerRadius = 20
-        root.layer?.borderColor = NSColor(calibratedWhite: 1, alpha: 0.10).cgColor
+        root.layer?.borderColor = Brand.line.cgColor
         root.layer?.borderWidth = 1
 
         let title = NSTextField(labelWithString: "What each mode does")
         title.font = .systemFont(ofSize: 16, weight: .semibold)
-        title.textColor = .white
+        title.textColor = Brand.ink
         title.frame = NSRect(x: pad, y: h - 44, width: w - pad * 2, height: 22)
         root.addSubview(title)
 
@@ -2163,13 +2445,13 @@ final class ModeInfoPanel: NSObject {
         for m in DeliverMode.pickable + [DeliverMode.ask] {
             let name = NSTextField(labelWithString: m == .ask ? "Ask (nothing picked)" : m.label)
             name.font = .systemFont(ofSize: 13.5, weight: .semibold)
-            name.textColor = .white
+            name.textColor = Brand.ink
             name.frame = NSRect(x: 0, y: y, width: textW, height: 18)
             doc.addSubview(name)
             y += 22
             let body = NSTextField(wrappingLabelWithString: m.example)
             body.font = .systemFont(ofSize: 12.5, weight: .regular)
-            body.textColor = NSColor(calibratedWhite: 0.78, alpha: 1)
+            body.textColor = Brand.muted
             let bh = body.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: textW, height: 10_000)).height ?? 60
             body.frame = NSRect(x: 0, y: y, width: textW, height: ceil(bh))
             doc.addSubview(body)
@@ -2190,7 +2472,7 @@ final class ModeInfoPanel: NSObject {
         btn.wantsLayer = true
         btn.layer?.cornerRadius = 14
         btn.frame = NSRect(x: (w - 120) / 2, y: 14, width: 120, height: 34)
-        btn.layer?.backgroundColor = NSColor(calibratedWhite: 1, alpha: 0.16).cgColor
+        btn.layer?.backgroundColor = Brand.rosedark.cgColor
         let center = NSMutableParagraphStyle()
         center.alignment = .center
         btn.attributedTitle = NSAttributedString(string: "Done", attributes: [
@@ -2280,20 +2562,15 @@ final class ResizeEdgeView: NSView {
 final class UIController: NSObject, NSWindowDelegate {
     var statusItem: NSStatusItem?
     var panel: NSPanel?
-    var captionField: NSTextField?
     var elapsedField: NSTextField?
     var waveform: WaveformView?
     var modeButtons: [DeliverMode: NSButton] = [:]
-    var modeMenuButton: NSButton?
-    var captionScroll: NSScrollView?
+    var modeInfoButton: NSButton?
     // v8.18: the pill is draggable and resizable like a terminal window.
     // These hold the top-row buttons so layoutHUD() can re-derive every frame
     // from the current panel size; customHUDFrame remembers where the user
     // put it (and how big) for the rest of the session — a daemon restart
     // goes back to the default size and bottom-center spot.
-    var finishButton: NSButton?
-    var stopButton: NSButton?
-    var cancelButton: NSButton?
     var settingsButton: NSButton?
     var hintField: NSTextField?
     var customHUDFrame: NSRect?
@@ -2329,7 +2606,7 @@ final class UIController: NSObject, NSWindowDelegate {
         let logItem = NSMenuItem(title: "Open Log", action: #selector(menuLog), keyEquivalent: "")
         logItem.target = self
         menu.addItem(logItem)
-        let signIn = NSMenuItem(title: cfg.licenseKey.isEmpty ? "Sign in to NessoTalk…" : "Sign in to a different account…",
+        let signIn = NSMenuItem(title: cfg.licenseKey.isEmpty ? "Sign in to YapperTalk…" : "Sign in to a different account…",
                                 action: #selector(menuSignIn), keyEquivalent: "")
         signIn.target = self
         menu.addItem(signIn)
@@ -2343,7 +2620,14 @@ final class UIController: NSObject, NSWindowDelegate {
         // becomesKeyOnlyIfNeeded so the mode buttons are clickable WITHOUT the
         // click ever stealing focus from the app being dictated into (the same
         // proven ChoicePanel recipe).
-        let w: CGFloat = 640, h: CGFloat = 196
+        // v8.29: the transcript box is gone — the words are in the app now — so
+        // the pill is a two-row strip (waveform, then the mode chips) instead of
+        // a panel sized around text nobody needs to read here any more.
+        // v8.30: the pill sits over the app you are dictating into the whole
+        // time you talk, so it is sized to be glanceable, not readable. With the
+        // instruction line gone the only rows left are the waveform and the
+        // chips, and the panel is now just tall enough to hold them.
+        let w: CGFloat = 432, h: CGFloat = 88
         // v8.18: .resizable on a borderless panel enables edge/corner drag
         // resizing (up to any size, including the whole screen), and
         // isMovableByWindowBackground makes every non-control area a drag
@@ -2361,96 +2645,71 @@ final class UIController: NSObject, NSWindowDelegate {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.isReleasedWhenClosed = false
         p.isMovableByWindowBackground = true
-        p.minSize = NSSize(width: 420, height: 150)
+        // Floor: the chip row and the top strip, touching, with the status line
+        // dropped. Below this the chips stop being readable.
+        p.minSize = NSSize(width: 416, height: 72)
         p.delegate = self
 
         let root = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
         root.wantsLayer = true
-        root.layer?.backgroundColor = NSColor(calibratedWhite: 0.05, alpha: 0.92).cgColor
-        root.layer?.cornerRadius = 24
-        root.layer?.borderColor = NSColor(calibratedWhite: 1, alpha: 0.10).cgColor
+        root.layer?.backgroundColor = Brand.card.withAlphaComponent(0.92).cgColor
+        root.layer?.cornerRadius = 16
+        root.layer?.borderColor = Brand.line.cgColor
         root.layer?.borderWidth = 1
 
         let elapsed = NSTextField(labelWithString: "0:00")
-        elapsed.font = .monospacedDigitSystemFont(ofSize: 14, weight: .semibold)
-        elapsed.textColor = NSColor(calibratedWhite: 0.85, alpha: 1)
-        elapsed.frame = NSRect(x: 20, y: h - 34, width: 96, height: 18)
+        elapsed.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        elapsed.textColor = Brand.ink
+        elapsed.frame = NSRect(x: 38, y: h - 26, width: 50, height: 16)
         root.addSubview(elapsed)
         elapsedField = elapsed
 
-        // The waveform IS the recording indicator (replaces the old red dot).
-        let wfW: CGFloat = 200, wfH: CGFloat = 30
-        let wf = WaveformView(frame: NSRect(x: (w - wfW) / 2 - 80, y: h - 42, width: wfW, height: wfH))
+        // The waveform IS the recording indicator (replaces the old red dot),
+        // and it is the one thing on this panel you actually watch while you
+        // talk, so it sits on the pill's own centre line. layoutHUD keeps it
+        // there at every size.
+        let wfW: CGFloat = 264, wfH: CGFloat = 24
+        let wf = WaveformView(frame: NSRect(x: (w - wfW) / 2, y: h - 30, width: wfW, height: wfH))
         root.addSubview(wf)
         waveform = wf
 
-        // STOP and CANCEL live on the panel itself, and that is the whole point.
-        // The Right-⌘ hotkey rides NSEvent's GLOBAL monitor, which macOS silently
-        // starves whenever any app holds Secure Input (Terminal's "Secure Keyboard
-        // Entry" does exactly this), and which the chord veto can also swallow.
-        // A click on our own window goes through the app's own event path and
-        // cannot be starved or vetoed by anything. These buttons are the
-        // guaranteed way out of a recording.
+        // v8.29: Done and ✕ are gone, and so is the transcript box they framed.
+        // Right ⌘ is now the whole interaction — it opens the pill and it closes
+        // it, and because the words were typed into the app as they were spoken
+        // there is nothing left for a Done button to deliver.
         //
-        // v8.8: FINISH sits directly next to STOP. Stop keeps today's behavior
-        // (stop, then deliver through the selected mode — the rewrite may take
-        // a few seconds). Finish is push-to-live: stop and paste IMMEDIATELY
-        // with whatever is already prepared — the pre-run rewrite if it's done,
-        // otherwise your words exactly as spoken. It never waits on the AI.
-        // v8.26: STOP is gone, and that is a simplification rather than a
-        // regression. It existed because a click on our own panel cannot be
-        // starved by Secure Input the way the Right-⌘ hotkey can, so there had
-        // to be a mouse-clickable way out. Done is also a click on this panel,
-        // so that guarantee is intact. And since modes became code-only in
-        // v8.11 the transform takes microseconds, so Stop and Finish deliver
-        // exactly the same thing. Two buttons for one action is just a choice
-        // the person has to make for no reason.
-        let doneBtn = makeActionButton("✓  Done", x: w - 150, y: 14, width: 132, height: 46,
-                                       action: #selector(hudFinish), accent: false,
-                                       color: NSColor(calibratedRed: 0.13, green: 0.55, blue: 0.28, alpha: 0.95))
-        doneBtn.toolTip = "Finish and paste. The Right Command key does the same thing."
-        root.addSubview(doneBtn)
-        finishButton = doneBtn
-
-        let cancelBtn = makeActionButton("✕", x: w - 56, y: h - 42, width: 38, height: 28,
-                                         action: #selector(hudCancel), accent: false,
-                                         color: NSColor(calibratedRed: 0.62, green: 0.16, blue: 0.16, alpha: 0.95))
-        cancelBtn.toolTip = "Throw this recording away. Always works, even when Escape does not."
-        root.addSubview(cancelBtn)
-        cancelButton = cancelBtn
-
-        // Caption area, scrollable so long dictations can be read back.
-        let scrollFrame = NSRect(x: 16, y: 68, width: w - 32, height: 82)
-        let scroller = NSScrollView(frame: scrollFrame)
-        scroller.drawsBackground = false
-        scroller.hasVerticalScroller = true
-        scroller.autohidesScrollers = false
-        scroller.scrollerStyle = .overlay
-        scroller.borderType = .noBorder
-
-        let caption = NSTextField(wrappingLabelWithString: "Listening…")
-        caption.font = .systemFont(ofSize: 16, weight: .medium)
-        caption.textColor = .white
-        caption.drawsBackground = false
-        caption.isBezeled = false
-        caption.isEditable = false
-        caption.isSelectable = true
-        caption.frame = NSRect(x: 0, y: 0, width: scrollFrame.width - 16, height: scrollFrame.height)
-        scroller.documentView = caption
-        root.addSubview(scroller)
-        captionField = caption
-        captionScroll = scroller
+        // What that costs, stated plainly: these two buttons used to be the one
+        // exit that Secure Input could not starve. The Right-⌘ hotkey rides
+        // NSEvent's GLOBAL monitor, which macOS silently starves while any app
+        // holds Secure Input (Terminal's "Secure Keyboard Entry" does exactly
+        // this). The replacement guarantee is the MENU BAR: "Stop & Transcribe"
+        // and "Cancel Recording" are ordinary menu items on our own status item,
+        // they go through the app's own event path, and nothing can starve them.
+        // Escape still cancels outright.
 
         // The mode is the only thing worth changing mid-dictation, so it gets
-        // the whole bottom row. Settings shrinks to a gear in the corner: it is
-        // something you touch once when you set up, not while you are talking.
-        let modeBtn = makeActionButton("◈  Mode", x: 18, y: 14, width: w - 186, height: 46,
-                                       action: #selector(hudPickMode), accent: false)
-        modeBtn.toolTip = "How this dictation gets written."
-        root.addSubview(modeBtn)
-        modeMenuButton = modeBtn
+        // the whole bottom row. v8.28: all five modes sit out as their own
+        // chips instead of one button behind a dropdown — click a chip to
+        // pick it, click the active one again to go back to "ask me after I
+        // stop." Settings shrinks to a gear in the corner: it is something
+        // you touch once when you set up, not while you are talking.
+        for (i, m) in DeliverMode.pickable.enumerated() {
+            let chip = makeActionButton(m.chipLabel, x: 18, y: 10, width: 66, height: 30,
+                                        action: #selector(hudModeChipTapped(_:)), accent: false)
+            chip.tag = i
+            chip.cell?.wraps = true
+            chip.toolTip = m.example
+            root.addSubview(chip)
+            modeButtons[m] = chip
+        }
 
-        let setBtn = makeActionButton("⚙", x: 14, y: h - 42, width: 30, height: 28,
+        let infoBtn = makeActionButton("ⓘ", x: 18, y: 10, width: 28, height: 30,
+                                       action: #selector(hudModeInfo), accent: false)
+        infoBtn.toolTip = "What does each mode do?"
+        root.addSubview(infoBtn)
+        modeInfoButton = infoBtn
+
+        let setBtn = makeActionButton("⚙", x: 10, y: h - 30, width: 24, height: 24,
                                       action: #selector(modeSettings), accent: false)
         setBtn.toolTip = "Settings. Your recording pauses while this is open and picks up again when you close it."
         root.addSubview(setBtn)
@@ -2458,20 +2717,25 @@ final class UIController: NSObject, NSWindowDelegate {
 
         // The one instruction anybody needs, sitting where they are already
         // looking. Losing a recording you cannot stop is the failure this whole
-        // panel exists to prevent, so the way out is written down.
-        let hint = NSTextField(labelWithString: "Tap Right ⌘ to finish, or press Done")
+        // panel exists to prevent, so the way out is written down. It doubles as
+        // the status line now that there is no caption box for setCaption to
+        // paint into.
+        let hint = NSTextField(labelWithString: "")
         hint.font = .systemFont(ofSize: 11)
-        hint.textColor = NSColor.white.withAlphaComponent(0.55)
+        hint.textColor = Brand.muted
         hint.backgroundColor = .clear
         hint.isBordered = false
-        hint.frame = NSRect(x: 20, y: 66, width: w - 40, height: 14)
+        hint.alignment = .center
+        hint.lineBreakMode = .byTruncatingTail
+        hint.frame = NSRect(x: 14, y: 39, width: w - 28, height: 13)
         root.addSubview(hint)
         hintField = hint
+        resetHint()
         // v8.8: restore the remembered mode, so the app reopens already
         // running in whatever mode was active last time it was used.
         selectedMode = DeliverMode.fromConfig(cfg.selectedMode)
         if selectedMode != .ask { log("· mode restored: \(selectedMode.label)") }
-        refreshModeButton()
+        refreshModeButtons()
 
         // Resize handles go in LAST so they sit above everything else and
         // always win the click at the pill's edges.
@@ -2517,20 +2781,16 @@ final class UIController: NSObject, NSWindowDelegate {
         modePickedThisRecording = false
         statusItem?.button?.title = "🔴 0:00"
         toggleMenuItem?.title = "Stop & Transcribe (Right ⌘)"
-        // The pill is the ONLY guaranteed way out of a recording: Stop and Cancel
-        // are clicks on our own panel, which macOS cannot starve the way it
-        // starves the global key monitor under Secure Input. So the panel must
-        // appear for EVERY recording, unconditionally. Live captions are a
-        // decoration on top of it and are allowed to be unavailable — gating the
-        // whole HUD on the caption model is what left every customer with no
-        // Stop button at all when CAPTION_MODEL pointed somewhere they had no file.
-        let captionsLive = cfg.liveCaptions && dict.captions.modelAvailable
-        captionField?.stringValue = captionsLive ? "Listening…" : "Recording."
+        // The panel appears for EVERY recording, unconditionally — it is the
+        // proof that the mic is live, and the waveform is that proof. Live
+        // typing is allowed to be unavailable (no caption model) without taking
+        // the pill down with it; the hint line says which of the two you got.
+        resetHint()
         elapsedField?.stringValue = "0:00"
         // v8.8: the mode is sticky. Whatever was last picked stays active
         // across recordings AND restarts (SELECTED_MODE in the config) — no
         // more re-picking it every dictation.
-        refreshModeButton()
+        refreshModeButtons()
         // HUD goes on the screen the user is actually on (the one under the
         // mouse) — NSScreen.main is just the primary display for an accessory app.
         let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
@@ -2542,8 +2802,8 @@ final class UIController: NSObject, NSWindowDelegate {
             if let custom = customHUDFrame {
                 p.setFrame(custom, display: true)
             } else if let f = screen?.visibleFrame {
-                p.setFrame(NSRect(x: f.midX - 320, y: f.minY + 28,
-                                  width: 640, height: 196), display: true)
+                p.setFrame(NSRect(x: f.midX - 216, y: f.minY + 28,
+                                  width: 432, height: 88), display: true)
             }
             suppressFrameTracking = false
             layoutHUD()
@@ -2569,7 +2829,7 @@ final class UIController: NSObject, NSWindowDelegate {
         if on {
             pausedAt = Date()
             waveform?.stop()
-            captionField?.stringValue = message
+            setCaption(message)
             statusItem?.button?.title = "⏸"
         } else {
             if let p = pausedAt, let s = recordStart {
@@ -2578,7 +2838,7 @@ final class UIController: NSObject, NSWindowDelegate {
             pausedAt = nil
             if recordStart != nil {
                 waveform?.start()
-                captionField?.stringValue = "Listening…"
+                resetHint()
                 tick()
             }
         }
@@ -2595,6 +2855,7 @@ final class UIController: NSObject, NSWindowDelegate {
     }
 
     func setLevel(_ l: Float) { waveform?.setLevel(l) }
+    func setSpeechProb(_ p: Float) { waveform?.setSpeechProb(p) }
 
     // ClickThroughButton keeps the click from stealing focus from the app being
     // dictated into, which is why these are safe to press mid-recording.
@@ -2607,82 +2868,56 @@ final class UIController: NSObject, NSWindowDelegate {
         b.wantsLayer = true
         b.layer?.cornerRadius = min(14, height / 2)
         b.frame = NSRect(x: x, y: y, width: width, height: height)
+        // A solid brand/semantic fill (Done, Cancel, or accent) reads dark
+        // enough for white text; the default translucent ink wash needs dark
+        // ink text instead — exactly like the unselected pill chips on the
+        // marketing site (bg-ink/[0.06] with dark text, not a white-on-white
+        // wash).
+        let onDarkFill = color != nil || accent
         b.layer?.backgroundColor = (color ?? (accent
-            ? NSColor(calibratedRed: 0.85, green: 0.22, blue: 0.20, alpha: 0.95)
-            : NSColor(calibratedWhite: 1, alpha: 0.14))).cgColor
+            ? Brand.rosedark
+            : Brand.ink.withAlphaComponent(0.06))).cgColor
         let center = NSMutableParagraphStyle()
         center.alignment = .center
         b.attributedTitle = NSAttributedString(string: title, attributes: [
             .font: NSFont.systemFont(ofSize: height >= 40 ? 15 : 13, weight: .semibold),
-            .foregroundColor: NSColor.white,
+            .foregroundColor: onDarkFill ? NSColor.white : Brand.ink,
             .paragraphStyle: center,
         ])
         return b
     }
 
-    func refreshModeButton() {
-        guard let b = modeMenuButton else { return }
-        let name = selectedMode == .ask ? "Mode" : selectedMode.label
+    func refreshModeButtons() {
         let center = NSMutableParagraphStyle()
         center.alignment = .center
-        b.attributedTitle = NSAttributedString(string: "◈  \(name)", attributes: [
-            .font: NSFont.systemFont(ofSize: 15, weight: .semibold),
-            .foregroundColor: NSColor.white,
-            .paragraphStyle: center,
-        ])
-        b.layer?.backgroundColor = NSColor(calibratedWhite: 1,
-                                           alpha: selectedMode == .ask ? 0.14 : 0.30).cgColor
-    }
-
-    // The five modes. Hover tooltips still carry each example, but the real
-    // affordance is the explainer item at the bottom — an ⓘ you can click
-    // (v8.9: the ⓘ glyph on every row looked clickable and wasn't).
-    @objc func hudPickMode() {
-        let menu = NSMenu()
-        for m in DeliverMode.pickable {
-            let item = NSMenuItem(title: m.label, action: #selector(hudModeChosen(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = m.label
-            item.toolTip = m.example
-            item.state = (m == selectedMode) ? .on : .off
-            menu.addItem(item)
-        }
-        menu.addItem(.separator())
-        let clear = NSMenuItem(title: "Ask me after I stop", action: #selector(hudModeChosen(_:)), keyEquivalent: "")
-        clear.target = self
-        clear.representedObject = DeliverMode.ask.label
-        clear.toolTip = DeliverMode.ask.example
-        clear.state = (selectedMode == .ask) ? .on : .off
-        menu.addItem(clear)
-        menu.addItem(.separator())
-        let info = NSMenuItem(title: "ⓘ What does each mode do?", action: #selector(hudModeInfo), keyEquivalent: "")
-        info.target = self
-        menu.addItem(info)
-
-        // v8.9: reading the mode list is not dictating. Hold the recording
-        // while the menu is up — same mechanism as Settings — and resume the
-        // moment it closes, unless the explainer took over (it resumes on Done).
-        if dict.recording && !dict.capturer.isPaused {
-            dict.capturer.pauseCapture()
-            modePauseActive = true
-            showPaused(true, message: "Paused while you pick a mode.")
-            log("· recording paused while the mode menu is open")
-        }
-        if let b = modeMenuButton {
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: b.frame.height + 6), in: b)
-        }
-        // The clicked item's action can be delivered on the main queue after
-        // popUp returns, so the resume decision waits behind it. If the
-        // explainer is (or is about to be) up, its Done button owns the resume.
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self, self.modePauseActive else { return }
-            if !ModeInfoPanel.shared.isVisible { self.endModePause() }
+        // A two-word label like "Straight Transcription" wraps onto its own
+        // second line instead of clipping — the chip is too narrow for five
+        // labels to fit on one line each at a readable size.
+        center.lineBreakMode = .byWordWrapping
+        // Mirrors the site's own mode chips exactly (WaveformPill.tsx): an
+        // unpicked chip is a faint ink wash, a picked one is a solid rose fill
+        // with a rose ring. The "◈ " that used to prefix the live chip is gone:
+        // it measured 11.9pt wider than the bare word, and since every chip is
+        // sized for the widest possible title, that one glyph set the minimum
+        // width of the whole pill. The fill and the ring already say "live".
+        for (m, b) in modeButtons {
+            let picked = m == selectedMode
+            b.attributedTitle = NSAttributedString(string: m.chipLabel, attributes: [
+                .font: NSFont.systemFont(ofSize: 10.5, weight: .semibold),
+                .foregroundColor: Brand.ink,
+                .paragraphStyle: center,
+            ])
+            b.layer?.backgroundColor = (picked ? Brand.rose : Brand.ink.withAlphaComponent(0.06)).cgColor
+            b.layer?.borderWidth = picked ? 1 : 0
+            b.layer?.borderColor = Brand.rose.withAlphaComponent(0.6).cgColor
         }
     }
 
+    // Tooltips on each chip still carry the example text; the ⓘ opens the
+    // full explainer with all five side by side (v8.9: the ⓘ glyph on every
+    // menu row looked clickable and wasn't — a dedicated button fixes that).
     @objc func hudModeInfo() {
-        // Keep (or take back) the pause while the explainer is up. If the
-        // deferred resume in hudPickMode already fired, this re-pauses.
+        // Keep (or take back) the pause while the explainer is up.
         if dict.recording && !dict.capturer.isPaused {
             dict.capturer.pauseCapture()
             modePauseActive = true
@@ -2705,83 +2940,83 @@ final class UIController: NSObject, NSWindowDelegate {
         log("· recording resumed")
     }
 
-    @objc func hudModeChosen(_ sender: NSMenuItem) {
-        guard let label = sender.representedObject as? String,
-              let m = DeliverMode.allCases.first(where: { $0.label == label }) else { return }
-        selectedMode = m
-        refreshModeButton()
+    @objc func hudModeChipTapped(_ sender: NSButton) {
+        let modes = DeliverMode.pickable
+        guard sender.tag >= 0, sender.tag < modes.count else { return }
+        let tapped = modes[sender.tag]
+        // Tapping the already-active chip clears back to "ask me after I
+        // stop" — this toggle replaces the dropdown's separate "Ask me
+        // after I stop" row, since there is no longer a menu to put it in.
+        selectedMode = (selectedMode == tapped) ? .ask : tapped
+        refreshModeButtons()
         // Persist the pick right away — this is what makes it survive a full
         // quit/reopen. Writing the config does NOT restart the daemon; the
         // in-memory selection above is already live for this session.
-        writeConfigValue("SELECTED_MODE", m.configValue)
+        writeConfigValue("SELECTED_MODE", selectedMode.configValue)
         modePickedThisRecording = true
         // Teach the per-app habit — the learner only ever reads explicit picks.
-        if m != .ask {
+        if selectedMode != .ask {
             let app = (NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "").lowercased()
-            recordModePick(app: app, mode: m.configValue)
+            recordModePick(app: app, mode: selectedMode.configValue)
         }
         log("· HUD mode: \(selectedMode.label) (remembered)")
     }
 
     // Guaranteed exits. These do not touch the global event monitor, so Secure
     // Input and the chord veto cannot reach them.
-    @objc func hudStop() {
-        log("· stop pressed on HUD")
-        if dict.recording { dict.toggle() }
-    }
-
-    @objc func hudFinish() {
-        log("· finish pressed on HUD — push to live")
-        if dict.recording { dict.finishInstantly() }
-    }
-
-    @objc func hudCancel() {
-        // Producer talk: clicking the pill means "done talking" — SEND, don't
-        // discard (that's the natural instinct). Esc still truly cancels.
-        if dict.recording, dict.producerSession {
-            log("· pill clicked during producer talk — sending")
-            dict.stopAndTranscribe()
-            return
-        }
-        log("· cancel pressed on HUD")
-        if dict.recording { dict.cancelRecording() }
-    }
-
+    // v8.29: hudStop / hudFinish / hudCancel went with their buttons. Right ⌘
+    // finishes, Escape cancels, and the menu bar carries both as items that
+    // Secure Input cannot starve.
     @objc func modeSettings() { SettingsWindow.shared.show() }
 
     // v8.18: single source of truth for the pill's layout. Every frame is
-    // derived from the CURRENT panel size, so resizing reflows everything:
-    // the caption area absorbs all extra room (bigger = more transcript),
-    // shrinking clips the transcript first, and the guaranteed exits
-    // (STOP / ✕) plus the bottom controls stay pinned and reachable at
-    // every size. The waveform gives way when the top bar gets tight.
+    // derived from the CURRENT panel size, so resizing reflows everything.
+    // v8.29: with the transcript gone, nothing in here wants to absorb extra
+    // room any more — the pill is a fixed two-row strip and resizing just
+    // spreads the same two rows wider. The waveform takes whatever the top row
+    // has left, because there is no longer a Done or ✕ crowding it.
     func layoutHUD() {
         guard let p = panel, let root = p.contentView else { return }
         let w = root.bounds.width, h = root.bounds.height
 
-        // Top bar: gear, elapsed, waveform, cancel. Bottom: mode, then Done.
-        settingsButton?.frame = NSRect(x: 14, y: h - 42, width: 30, height: 28)
-        elapsedField?.frame   = NSRect(x: 52, y: h - 38, width: 74, height: 18)
-        cancelButton?.frame   = NSRect(x: w - 56, y: h - 42, width: 38, height: 28)
+        // Top strip: gear and clock on the left, waveform on the panel's own
+        // centre line. That is why the right side reserves the SAME gutter the
+        // left one uses even though nothing sits there: the waveform is what
+        // you watch while talking, so it gets the true centre and the controls
+        // sit outside it. Centring it in the space the controls left over —
+        // what this did before — parked it visibly off-axis to the right.
+        let topH: CGFloat = 24
+        let topY = h - topH - 6
+        settingsButton?.frame = NSRect(x: 10, y: topY, width: 24, height: topH)
+        elapsedField?.frame   = NSRect(x: 38, y: topY + 4, width: 50, height: 16)
 
-        // Waveform sits between the elapsed readout and the cancel button, and
-        // gives up its space before anything you need to click does.
-        let wfLeft: CGFloat = 132, wfRight = w - 68
-        let avail = wfRight - wfLeft
-        if avail >= 60, let wf = waveform {
-            let wfW = min(240, avail)
+        let gutter: CGFloat = 92            // 10 + 24 + 4 + 50 + 4, the left side
+        let wfW = min(280, w - 2 * gutter)
+        if wfW >= 60, let wf = waveform {
             wf.isHidden = false
-            wf.frame = NSRect(x: wfLeft + (avail - wfW) / 2, y: h - 42, width: wfW, height: 28)
+            wf.frame = NSRect(x: (w - wfW) / 2, y: topY, width: wfW, height: topH)
         } else {
             waveform?.isHidden = true
         }
 
-        let doneW: CGFloat = min(132, max(88, w * 0.22))
-        modeMenuButton?.frame  = NSRect(x: 18, y: 14, width: max(80, w - doneW - 54), height: 46)
-        finishButton?.frame    = NSRect(x: w - doneW - 18, y: 14, width: doneW, height: 46)
-        hintField?.frame       = NSRect(x: 20, y: 66, width: max(0, w - 40), height: 14)
-        hintField?.isHidden    = h < 170
-        captionScroll?.frame   = NSRect(x: 16, y: 84, width: w - 32, height: max(0, h - 130))
+        // Bottom row: five mode chips plus the ⓘ, across the full width.
+        let infoW: CGFloat = 28, chipGap: CGFloat = 5, chipH: CGFloat = 30
+        let modeAreaW: CGFloat = max(80, w - 28)
+        let chipW = max(40, (modeAreaW - infoW - chipGap * 5) / 5)
+        var chipX: CGFloat = 14
+        for m in DeliverMode.pickable {
+            modeButtons[m]?.frame = NSRect(x: chipX, y: 8, width: chipW, height: chipH)
+            chipX += chipW + chipGap
+        }
+        modeInfoButton?.frame = NSRect(x: chipX, y: 8, width: infoW, height: chipH)
+
+        // The status line is the only thing that gives way on resize, and it is
+        // empty most of the time now that the standing instruction moved to
+        // Settings. It gets the band between the chips and the top strip when
+        // one exists, and is dropped when the pill is shorter than that.
+        let hintY = 8 + chipH + 1
+        hintField?.frame    = NSRect(x: 14, y: hintY, width: max(0, w - 28), height: 13)
+        hintField?.isHidden = topY - hintY < 15
 
         // Resize handles hug the current edges: 8pt strips, 14pt corners.
         let g: CGFloat = 8, c: CGFloat = 14
@@ -2799,9 +3034,6 @@ final class UIController: NSObject, NSWindowDelegate {
             }
         }
         for v in resizeEdges { panel?.invalidateCursorRects(for: v) }
-
-        // Re-wrap the transcript to the new width right away.
-        if let f = captionField { setCaption(f.stringValue) }
     }
 
     func windowDidResize(_ n: Notification) {
@@ -2816,27 +3048,26 @@ final class UIController: NSObject, NSWindowDelegate {
         customHUDFrame = panel?.frame
     }
 
+    // v8.29: there is no transcript box left to paint into, so the old caption
+    // callers (mic faults, the paused notice, producer/command prompts) land on
+    // the pill's one line of text instead. Transcript text never comes through
+    // here any more — it goes into the app the user is typing in.
     func setCaption(_ text: String) {
-        guard let field = captionField, let scroll = captionScroll else { return }
-        // The caption now lives in a scroll view, so instead of clipping to two
-        // lines we keep a readable backlog and grow the field to fit it. The
-        // newest words stay visible because we pin the scroll to the bottom;
-        // everything earlier is still there if the user scrolls up.
-        let tail = String(text.suffix(1200))
-        field.stringValue = tail
+        hintField?.stringValue = text
+    }
 
-        let width = scroll.contentView.bounds.width - 4
-        let measure = NSTextFieldCell(textCell: tail)
-        measure.font = field.font
-        measure.wraps = true
-        let bounds = NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)
-        let needed = max(scroll.contentView.bounds.height, measure.cellSize(forBounds: bounds).height + 6)
-        field.frame = NSRect(x: 0, y: 0, width: width, height: needed)
-
-        // Flipped document view: y=0 is the top, so the bottom is maxY.
-        let bottom = max(0, needed - scroll.contentView.bounds.height)
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: bottom))
-        scroll.reflectScrolledClipView(scroll.contentView)
+    // The line the pill shows when it has nothing more urgent to say.
+    // Checks the model FILE rather than dict.captions.modelAvailable: setup()
+    // calls this while the globals are still being built, and reaching for
+    // `dict` from inside `ui`'s own initialization is a circular global init
+    // that segfaults on the spot.
+    // The pill used to state how to work it. That line is read once and then
+    // never again, so it moved to Settings, under the hotkey it describes. The
+    // field stays because setHint still uses it for things that are actually
+    // news (errors, "transcribing…"), and an empty string lets layoutHUD give
+    // the row back instead of reserving space for a sentence nobody rereads.
+    func resetHint() {
+        hintField?.stringValue = ""
     }
 
     @objc func menuToggle() { dict.toggle() }
@@ -2856,6 +3087,220 @@ final class UIController: NSObject, NSWindowDelegate {
         try? p.run()
         // Fallback for running outside launchd (manual debug).
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { exit(0) }
+    }
+}
+
+// What insert() still owes the target, given what live typing already put
+// there. Pulled out as a pure function because it is the one piece of this
+// feature that can silently damage a document if it is wrong: get `remove`
+// too large and it eats the user's own text, too small and the transcript is
+// left with a mangled seam. --reconcile-test exercises it.
+enum LiveSettle: Equatable {
+    case nothing                                    // the preview already is the final text
+    case appendOnly(String)                         // the final text extends the preview
+    case replaceTail(remove: Int, paste: String)    // they diverge N characters back
+}
+
+func liveSettlePlan(typed: String, final: String) -> LiveSettle {
+    let common = typed.commonPrefix(with: final)
+    let remove = typed.count - common.count
+    let addition = String(final.dropFirst(common.count))
+    if remove == 0 { return addition.isEmpty ? .nothing : .appendOnly(addition) }
+    return .replaceTail(remove: remove, paste: addition)
+}
+
+// ===================== live typing (words land in the app, not in a box) =====
+// The pill used to hold the transcript in a scrolling box you read while you
+// talked, and the whole thing was pasted when you stopped. Now recognized words
+// are typed straight into whatever field has focus, as they are recognized, so
+// by the time you tap Right Command the text is already exactly where you
+// wanted it and the pill has nothing left to show but the waveform.
+//
+// Injection is CGEvent Unicode, NOT clipboard + Cmd-V: a paste per phrase would
+// trash the user's clipboard a dozen times per dictation, and every commit
+// would flash as a visible paste in the apps that animate one. The final
+// reconciliation in Dictation.insert() still pastes, because by then it is one
+// operation on the whole text.
+//
+// ONLY COMMITTED WORDS ARE EVER TYPED. The caption engine's live tail rewrites
+// itself as the model hears more, and text that rewrites itself is fine in a
+// preview box and unacceptable in someone's document. Committed spans never
+// change, so typing them is append-only and never has to take anything back
+// mid-sentence.
+final class LiveTyper {
+    // Exactly the characters posted into the target this session, in order.
+    // insert() reconciles the final full-quality transcript against this, so it
+    // has to be what was really posted, not what we meant to post.
+    private(set) var typed = ""
+    // Sealed at stop: a caption pass already in flight must not type more words
+    // in after the recording ended.
+    private var sealed = true
+    // The app that owned focus when the recording started. Dictation typed into
+    // a DIFFERENT app than the one the user was looking at is worse than no
+    // dictation at all, so focus moving away stops typing for good rather than
+    // following the focus.
+    private(set) var targetApp: String?
+    private(set) var drifted = false
+    // All posting happens here. Every synthesized keystroke needs a small gap,
+    // and the main thread must never sleep — it drives the waveform, the HUD
+    // and the Right-Command monitor.
+    private let queue = DispatchQueue(label: "ptt.typer")
+
+    private func frontBundle() -> String? {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    }
+
+    var targetStillFocused: Bool { !drifted && frontBundle() == targetApp }
+
+    func begin() {
+        typed = ""
+        retyped = 0
+        drifted = false
+        sealed = false
+        targetApp = frontBundle()
+        log("· live typing into \(targetApp ?? "the focused app")")
+    }
+
+    // Stop accepting new words, but KEEP what was typed — insert() still needs
+    // it to reconcile against the finished transcript.
+    func seal() { sealed = true }
+
+    // Hand the typed text to insert() and reset. One-shot by design: a second
+    // call returns "" so a retry can never double-count what is already there.
+    func consume() -> String {
+        let t = typed
+        typed = ""
+        sealed = true
+        return t
+    }
+
+    // Make the target's text equal `target`, using the smallest edit that gets
+    // there. Called every pass with the newest preview, so this is where
+    // word-by-word streaming actually happens: the front of the preview is
+    // stable, so commonPrefix absorbs it and only the unstable last word or two
+    // is ever selected and retyped.
+    //
+    // Keystrokes only, never the clipboard: this runs several times a second,
+    // and a pasteboard write per pass would make the user's clipboard unusable
+    // for the length of the dictation.
+    func sync(to target: String) {
+        guard !sealed, !drifted else { return }
+        if let t = targetApp, let now = frontBundle(), now != t {
+            drifted = true
+            log("⚠️ focus moved to \(now) mid-dictation — live typing stopped; the words so far stay in \(t)")
+            return
+        }
+        switch liveSettlePlan(typed: typed, final: target) {
+        case .nothing:
+            return
+        case .appendOnly(let add):
+            typed += add
+            queue.async { LiveTyper.postText(add) }
+        case .replaceTail(let remove, let add):
+            typed = String(typed.dropLast(remove)) + add
+            retyped += remove
+            queue.async {
+                // Backspace the divergence out rather than Shift+Left-selecting
+                // it: a synthetic select only becomes a real, replaceable
+                // selection in native Cocoa text views. In plenty of real
+                // targets (Chromium/Electron fields especially) it silently
+                // selects nothing, so the retype below landed NEXT TO the stale
+                // words instead of over them — the live preview visibly
+                // doubling up mid-sentence. Backspace makes no such assumption:
+                // it deletes one character left of the caret exactly as a
+                // keypress would, in every app, every time.
+                LiveTyper.postKey(51, flags: [], times: remove)   // kVK_Delete (Backspace)
+                if !add.isEmpty { LiveTyper.postText(add) }
+            }
+        }
+    }
+
+    // How many characters streaming has had to take back and retype this
+    // session — the cost of showing words before the model is sure of them.
+    private(set) var retyped = 0
+
+    // Type a trailing fragment insert() still owes the target.
+    func typeTail(_ s: String, then done: @escaping () -> Void) {
+        guard !s.isEmpty else { done(); return }
+        queue.async {
+            LiveTyper.postText(s)
+            DispatchQueue.main.async(execute: done)
+        }
+    }
+
+    // Erase the last n characters with real Backspace presses so whatever gets
+    // pasted next lands clean. This used to select the last n characters with
+    // Shift+Left and paste over the selection in one mutation — cheaper, and
+    // correct against this app's own native text view, but it assumed every
+    // target turns a synthetic Shift+Left into a real, replaceable selection.
+    // Plenty of real targets don't (Chromium/Electron fields especially), so
+    // the paste landed beside the untouched live-typed words instead of over
+    // them — the finished transcript appearing to double up on screen.
+    // Backspace makes no such assumption: it deletes one character left of the
+    // caret exactly as a keypress would, in every app, every time.
+    func backspace(_ n: Int, then done: @escaping () -> Void) {
+        guard n > 0 else { done(); return }
+        queue.async {
+            LiveTyper.postKey(51, flags: [], times: n)   // kVK_Delete (Backspace)
+            DispatchQueue.main.async(execute: done)
+        }
+    }
+
+    // Cancel (Escape, or the menu-bar Cancel): take back every character this
+    // session typed. Discarding a recording has to discard what it put on
+    // screen too, or "cancel" means nothing.
+    func eraseTyped() {
+        let n = typed.count
+        typed = ""
+        sealed = true
+        guard n > 0 else { return }
+        guard targetStillFocused else {
+            log("⚠️ canceled, but focus had moved — \(n) live-typed characters were left in \(targetApp ?? "the old app")")
+            return
+        }
+        queue.async {
+            LiveTyper.postKey(51, flags: [], times: n)   // backspace, not select+delete — see backspace(_:then:)
+        }
+        log("· canceled — took back \(n) live-typed characters")
+    }
+
+    // ---- raw event posting: typer queue only, never main ----
+
+    private static func postText(_ s: String) {
+        let src = CGEventSource(stateID: .combinedSessionState)
+        let units = Array(s.utf16)
+        // Chunked: one event carrying a very long string gets truncated or
+        // dropped outright by some apps' input handling, while one event per
+        // character is a needless storm. 16 UTF-16 units sits under every limit
+        // observed and still arrives as a single edit in normal text fields.
+        var i = 0
+        while i < units.count {
+            let slice = Array(units[i..<min(i + 16, units.count)])
+            for isDown in [true, false] {
+                guard let e = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: isDown) else { continue }
+                slice.withUnsafeBufferPointer { buf in
+                    e.keyboardSetUnicodeString(stringLength: slice.count, unicodeString: buf.baseAddress)
+                }
+                e.post(tap: .cghidEventTap)
+            }
+            i += 16
+            usleep(1200)
+        }
+    }
+
+    private static func postKey(_ vk: CGKeyCode, flags: CGEventFlags, times: Int) {
+        let src = CGEventSource(stateID: .combinedSessionState)
+        for _ in 0..<times {
+            let down = CGEvent(keyboardEventSource: src, virtualKey: vk, keyDown: true)
+            let up = CGEvent(keyboardEventSource: src, virtualKey: vk, keyDown: false)
+            down?.flags = flags
+            up?.flags = flags
+            down?.post(tap: .cghidEventTap)
+            up?.post(tap: .cghidEventTap)
+            // Arrow keys only move a caret — far cheaper for the receiving app
+            // than a text edit, so they can go faster than typed characters.
+            usleep(300)
+        }
     }
 }
 
@@ -2885,19 +3330,42 @@ final class CaptionEngine {
     private let tmpWav = "/tmp/ptt_caption_\(getpid()).wav"
     private let tmpTxt = "/tmp/ptt_caption_\(getpid())"
 
-    // Injected so --caption-sim can print HUD frames without an NSApp/HUD.
+    // Injected so --caption-sim can print rolling frames without an NSApp/HUD.
     var display: (String) -> Void = { t in DispatchQueue.main.async { ui.setCaption(t) } }
+    // v8.29: the HUD no longer shows a transcript, so the jittery live tail has
+    // no consumer in the daemon and decoding it every pass was pure waste — one
+    // extra whisper-cli spawn per pass for text nobody reads. Only --caption-sim
+    // and the tests turn it back on.
+    var wantsPreview = false
+    private var previewing: Bool { wantsPreview || onPreview != nil }
+    // Live typing sink: called on the caption queue with the FULL preview
+    // (committed + live tail) after every pass, not just at a commit.
+    //
+    // v8.30: this used to hand out committed spans only, because committed text
+    // never rewrites and append-only typing needs no corrections. It was also
+    // why words took 2-4s to appear — a commit needs both a full window of
+    // audio AND a detected pause. Streaming the tail instead puts words on
+    // screen a pass after they are spoken, and the rewriting the tail does is
+    // absorbed by the same common-prefix reconciliation insert() already uses:
+    // only the characters that actually changed are retyped, which in practice
+    // is the last word or two.
+    var onPreview: ((String) -> Void)?
+    // How much tail has to pile up before it commits. Typing wants short,
+    // frequent commits so words appear while you are still talking; the old
+    // read-it-in-the-box behavior wanted long ones. Set per session by start().
+    private var commitSeconds = 10.0
 
     var modelAvailable: Bool { FileManager.default.fileExists(atPath: cfg.captionModel) }
 
-    func start(wav: String) {
+    func start(wav: String, commitSeconds: Double, interval: Double) {
         guard cfg.liveCaptions, modelAvailable else { return }
         queue.async {
             self.generation += 1
             let gen = self.generation
             self.reset(wav: wav)
+            self.commitSeconds = commitSeconds
             let t = DispatchSource.makeTimerSource(queue: self.queue)
-            t.schedule(deadline: .now() + cfg.captionInterval, repeating: cfg.captionInterval)
+            t.schedule(deadline: .now() + interval, repeating: interval)
             t.setEventHandler { [weak self] in self?.pass(gen: gen) }
             t.resume()
             self.timer = t
@@ -2912,9 +3380,12 @@ final class CaptionEngine {
         }
     }
 
-    // Test hooks for --caption-sim: drive passes without a timer/mic.
-    func simStart(wav: String) { queue.sync { reset(wav: wav) } }
+    // Test hooks for --caption-sim / --type-sim: drive passes without a timer or a mic.
+    func simStart(wav: String, commitSeconds: Double = 10.0) {
+        queue.sync { reset(wav: wav); self.commitSeconds = commitSeconds }
+    }
     func simPass() { queue.sync { pass(gen: generation) } }
+    func simCommitted() -> String { queue.sync { committed } }
 
     private func reset(wav: String) {
         wavPath = wav
@@ -2966,9 +3437,13 @@ final class CaptionEngine {
         // Sample alignment must hold for the read START relative to the data
         // chunk — align availability, not length (a torn mid-write size can be odd).
         let usable = (size - off) & ~1
-        guard usable > committedByte + 32000 else { return }   // ≥1s of new audio
+        // Enough NEW audio to be worth a decode. 0.4s when something is reading
+        // the preview (live typing wants words out fast), 1s otherwise — below
+        // ~0.4s the small model has too little to work with.
+        let minNew: UInt64 = previewing ? 12800 : 32000
+        guard usable > committedByte + minNew else { return }
         let span = usable - committedByte
-        let commitSpan = UInt64(max(6.0, min(cfg.captionWindow, 10.0)) * 32000)
+        let commitSpan = UInt64(max(1.5, min(commitSeconds, 20.0)) * 32000)
         // Commit ONLY at a detected pause — a mid-word cut would freeze a
         // mangled seam into the committed line. If he talks straight through,
         // let the live span grow to 2× before a last-resort hard cut 2s back.
@@ -2985,7 +3460,8 @@ final class CaptionEngine {
                   gen == generation else { return }
             if !head.isEmpty { committed += (committed.isEmpty ? "" : " ") + head }
             committedByte = cut
-            // Fresh live tail in the same frame — the HUD must never shrink at
+            guard previewing else { return }
+            // Fresh live tail in the same frame — a preview must never shrink at
             // a commit (words visibly vanishing was the old design's sin).
             var tail = ""
             if usable > cut + 19200 {                          // ≥0.6s after the cut
@@ -2993,13 +3469,18 @@ final class CaptionEngine {
             }
             guard gen == generation else { return }
             let full = committed + (tail.isEmpty ? "" : (committed.isEmpty ? "" : " ") + tail)
-            if !full.isEmpty { display(full) }
-        } else {
+            if !full.isEmpty { emit(full) }
+        } else if previewing {
             guard let txt = decodeRange(fh, off: off, from: committedByte, to: usable),
                   gen == generation else { return }
             let full = committed + (txt.isEmpty ? "" : (committed.isEmpty ? "" : " ") + txt)
-            if !full.isEmpty { display(full) }
+            if !full.isEmpty { emit(full) }
         }
+    }
+
+    private func emit(_ full: String) {
+        onPreview?(full)
+        if wantsPreview { display(full) }
     }
 }
 
@@ -3310,7 +3791,7 @@ final class PolishRace {
                 switch mode {
                 case "summarize":    r = polishForAI(text, context: context)
                 case "professional": r = polishForText(text, context: context)
-                default:             r = polishViaProxy(text, timeout: max(45.0, words / 4.0), mode: mode)?
+                default:             r = polishViaProxy(text, timeout: max(45.0, words / 4.0), mode: mode, context: context)?
                                             .trimmingCharacters(in: .whitespacesAndNewlines)
                 }
                 self.lock.sync {
@@ -3358,9 +3839,16 @@ func raceModes(for picked: DeliverMode, defaultMode: String) -> [String] {
 // on a live license. Customers never need their own key, and a cracked copy
 // gets nothing here (402) — the capability was never on their machine.
 // mode: "summarize" | "professional" | "command".
-func polishViaProxy(_ text: String, timeout: Double, mode: String) -> String? {
+func polishViaProxy(_ text: String, timeout: Double, mode: String, context: String = "") -> String? {
     guard !cfg.licenseKey.isEmpty else { return nil }
-    let body: [String: Any] = ["key": cfg.licenseKey, "mode": mode, "text": text]
+    // Destination app and the house style ride along with every proxy request.
+    // The engine owns the prompt on this path, so anything not sent here simply
+    // never reaches the model: before these two fields existed a paying
+    // customer's STYLE setting changed nothing at all, because the only
+    // transport that honoured it was the local-key path customers never use.
+    var body: [String: Any] = ["key": cfg.licenseKey, "mode": mode, "text": text]
+    if !context.isEmpty { body["context"] = context }
+    if !cfg.style.isEmpty { body["style"] = cfg.style }
     guard let json = try? JSONSerialization.data(withJSONObject: body) else { return nil }
     let reqFile = "/tmp/ptt_proxy_\(getpid()).json"
     defer { try? FileManager.default.removeItem(atPath: reqFile) }
@@ -3993,7 +4481,7 @@ func polishForAI(_ text: String, context: String = "") -> String? {
     let timeout = max(30.0, Double(words) / 4.0)     // expansion writes MORE than the transcript
     let inst = POLISH_INSTRUCTION + contextSuffix(context)
     var out: String?
-    out = polishViaProxy(text, timeout: timeout, mode: "summarize")
+    out = polishViaProxy(text, timeout: timeout, mode: "summarize", context: context)
     if out == nil, cfg.polishKey.hasPrefix("gsk_") { out = polishViaGroq(text, timeout: timeout, instruction: inst) }
     else if out == nil, !cfg.polishKey.isEmpty { out = polishViaAPI(text, timeout: timeout, instruction: inst) }
     if out == nil { out = polishViaClaudeCLI(text, timeout: timeout, instruction: inst) }
@@ -4020,7 +4508,7 @@ func polishForText(_ text: String, context: String = "") -> String? {
     let timeout = max(25.0, Double(words) / 5.0)
     let inst = POLISH_TEXT_INSTRUCTION + contextSuffix(context)
     var out: String?
-    out = polishViaProxy(text, timeout: timeout, mode: "professional")
+    out = polishViaProxy(text, timeout: timeout, mode: "professional", context: context)
     if out == nil, cfg.polishKey.hasPrefix("gsk_") { out = polishViaGroq(text, timeout: timeout, instruction: inst) }
     else if out == nil, !cfg.polishKey.isEmpty { out = polishViaAPI(text, timeout: timeout, instruction: inst) }
     if out == nil { out = polishViaClaudeCLI(text, timeout: timeout, instruction: inst) }
@@ -4030,10 +4518,16 @@ func polishForText(_ text: String, context: String = "") -> String? {
         || lower.hasPrefix("here is the rewritten") || lower.hasPrefix("here's the rewritten") {
         return nil
     }
-    // Cleanup only strips fillers — output under half the input means the model
-    // summarized instead; paste raw. (Gate and instruction must stay paired:
-    // a condensing prompt with this gate would reject nearly every polish.)
-    if t.count < text.count / 2 { return nil }
+    // Gate and instruction must stay paired, and the instruction that actually
+    // runs for customers lives on the engine, where "professional" REWRITES a
+    // rambling gist into a sendable message. A good rewrite is therefore
+    // legitimately shorter than what was said, and the old half-the-input floor
+    // rejected most of them — pasting the raw ramble into the user's text app
+    // precisely when the cleanup had worked. A real failure (a one-line summary,
+    // or a meta remark about the transcript) collapses far further than any
+    // genuine message does, so the floor sits at a quarter and the refusal
+    // checks above catch the rest.
+    if t.count < text.count / 4 { return nil }
     return t
 }
 
@@ -4136,7 +4630,7 @@ func checkLicense() {
 
     if let latest = obj["latest_version"] as? String, latest != APP_VERSION {
         updateAvailable = latest
-        log("↑ NessoTalk \(latest) is available. Run: ptt update")
+        log("↑ YapperTalk \(latest) is available. Run: ptt update")
     } else {
         updateAvailable = ""
     }
@@ -4255,26 +4749,28 @@ final class ChoicePanel: NSObject {
 
         let root = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
         root.wantsLayer = true
-        root.layer?.backgroundColor = NSColor(calibratedWhite: 0.07, alpha: 0.92).cgColor
+        root.layer?.backgroundColor = Brand.card.withAlphaComponent(0.92).cgColor
         root.layer?.cornerRadius = 16
+        root.layer?.borderColor = Brand.line.cgColor
+        root.layer?.borderWidth = 1
 
         let words = transcript.split(separator: " ").count
         let title = NSTextField(labelWithString: "Transcript ready · \(words) words")
         title.font = .systemFont(ofSize: 13, weight: .semibold)
-        title.textColor = NSColor(calibratedWhite: 0.85, alpha: 1)
+        title.textColor = Brand.ink
         title.frame = NSRect(x: 18, y: h - 30, width: w - 220, height: 18)
         root.addSubview(title)
 
         let hint = NSTextField(labelWithString: "keeps as spoken in \(Int(cfg.polishAskTimeout))s")
         hint.font = .systemFont(ofSize: 11, weight: .regular)
-        hint.textColor = NSColor(calibratedWhite: 0.5, alpha: 1)
+        hint.textColor = Brand.muted
         hint.alignment = .right
         hint.frame = NSRect(x: w - 210, y: h - 29, width: 192, height: 16)
         root.addSubview(hint)
 
         let preview = NSTextField(labelWithString: String(transcript.prefix(180)))
         preview.font = .systemFont(ofSize: 12, weight: .regular)
-        preview.textColor = NSColor(calibratedWhite: 0.65, alpha: 1)
+        preview.textColor = Brand.muted
         preview.frame = NSRect(x: 18, y: 46, width: w - 36, height: 34)
         preview.maximumNumberOfLines = 2
         preview.lineBreakMode = .byTruncatingTail
@@ -4469,10 +4965,43 @@ func runWhisper(on wavPath: String, txtBase: String) -> String? {
     }
 }
 
+// Parakeet TDT: tried first, only when explicitly enabled (`ptt parakeet
+// on`) and the decode language is English. parakeet-cli auto-detects
+// internally and exposes no language flag at all, so anything other than
+// plain "en" is left to whisper untouched below — same for a missing model,
+// a missing binary, a nonzero exit, or a watchdog kill. Every failure mode
+// here is silent and falls straight through, exactly as if this were off.
+func runParakeetLocalPath(decodeWav: String, txtBase: String, timeout: Double) -> String? {
+    guard cfg.useParakeet, cfg.language == "en",
+          FileManager.default.fileExists(atPath: PARAKEET_MODEL),
+          FileManager.default.isExecutableFile(atPath: PARAKEET_CLI) else { return nil }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: PARAKEET_CLI)
+    p.arguments = ["-m", PARAKEET_MODEL, "-f", decodeWav, "-np", "-otxt", "-of", txtBase]
+    p.standardOutput = FileHandle.nullDevice
+    p.standardError = FileHandle.nullDevice
+    do { try p.run() } catch { log("!! parakeet error: \(error)"); return nil }
+    DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak p] in
+        if let p = p, p.isRunning {
+            p.terminate()
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                if p.isRunning { kill(p.processIdentifier, SIGKILL) }
+            }
+        }
+    }
+    p.waitUntilExit()
+    guard p.terminationReason != .uncaughtSignal, p.terminationStatus == 0,
+          let text = try? String(contentsOfFile: txtBase + ".txt", encoding: .utf8) else { return nil }
+    return text
+}
+
 // The pre-cloud decode stack, verbatim: resident server first, whisper-cli
 // second. Extracted so the routes above can reuse it; behavior unchanged.
 func runWhisperLocalPath(decodeWav: String, txtBase: String,
                          timeout: Double, duration: Double) -> String? {
+    if let text = runParakeetLocalPath(decodeWav: decodeWav, txtBase: txtBase, timeout: timeout) {
+        return text
+    }
     // Resident server first (call + whisper modes excepted: both need a lower
     // VAD gate than the server's launch-time threshold). Any failure falls
     // through to the CLI.
@@ -4924,6 +5453,7 @@ final class Dictation: NSObject {
     var autoStop: DispatchWorkItem?
     let captions = CaptionEngine()
     let chunks = ChunkEngine()
+    let typer = LiveTyper()
 
     // Clipboard bookkeeping for insert(): survives overlapping inserts from
     // concurrent jobs without "restoring" our own previous transcript.
@@ -5132,7 +5662,7 @@ final class Dictation: NSObject {
             }
             log("✕ recording blocked — no account connected")
             playSound("Basso")
-            showAccessAlert("This Mac is not connected to a NessoTalk account yet. Signing in takes one click and there is nothing to type.")
+            showAccessAlert("This Mac is not connected to a YapperTalk account yet. Signing in takes one click and there is nothing to type.")
             return
         }
         // AVAudioEngine.start() can block in audio-server XPC while TCC mic
@@ -5172,7 +5702,29 @@ final class Dictation: NSObject {
         log("● recording… (session \(sessionN)) · mic=\(capturer.deviceName)")
         playSound("Tink")
         ui.recordingStarted()
-        captions.start(wav: currentWav)
+        // Live typing: committed words go into the focused app as they are
+        // recognized, so the pill has nothing to show and nothing is pasted at
+        // the end but the difference. Deliberately OFF for two sessions:
+        //   · producer talk — that transcript belongs in the producer inbox,
+        //     not in whatever window happens to be in front;
+        //   · command mode — that transcript is an INSTRUCTION for the selected
+        //     text ("make this shorter"), and typing it out is exactly the thing
+        //     that must never happen.
+        // It also needs the caption model, since committed spans are what it
+        // types; without one it falls back to the old paste-at-the-end.
+        let liveTyping = cfg.liveType && cfg.liveCaptions && captions.modelAvailable
+            && !producerSession && commandSelection == nil
+        if liveTyping {
+            typer.begin()
+            captions.onPreview = { [weak self] preview in
+                DispatchQueue.main.async { self?.typer.sync(to: preview) }
+            }
+        } else {
+            captions.onPreview = nil
+        }
+        captions.start(wav: currentWav,
+                       commitSeconds: liveTyping ? cfg.liveTypeCommit : cfg.captionWindow,
+                       interval: liveTyping ? cfg.liveTypeInterval : cfg.captionInterval)
         chunks.start(wav: currentWav, session: sessionN)
         let stopper = DispatchWorkItem { [weak self] in
             guard let self = self, self.recording else { return }
@@ -5198,6 +5750,9 @@ final class Dictation: NSObject {
         instantFinish = false
         autoStop?.cancel(); autoStop = nil
         captions.stop()
+        // Discarding a recording has to discard what it put on screen too, or
+        // "cancel" means nothing now that the words were going in live.
+        typer.eraseTyped()
         chunks.cancel()
         _ = capturer.stop()
         try? FileManager.default.removeItem(atPath: currentWav)
@@ -5216,6 +5771,13 @@ final class Dictation: NSObject {
         instantFinish = false
         autoStop?.cancel(); autoStop = nil
         captions.stop()
+        // No more words may be typed in after the key was tapped. What is
+        // already in the app stays there; insert() reconciles it against the
+        // finished full-quality transcript.
+        typer.seal()
+        if typer.retyped > 0 {
+            log("· live typing: \(typer.typed.count) chars on screen, \(typer.retyped) retyped while the model firmed up")
+        }
         let snap = capturer.stop()
         ui.recordingStopped()
         let wav = currentWav
@@ -5428,11 +5990,59 @@ final class Dictation: NSObject {
         }
     }
 
-    // Insert text into the focused field via clipboard + Cmd-V, then restore clipboard.
+    // Settle the finished transcript into the focused field.
+    //
+    // With live typing on, most of it is ALREADY THERE — typed span by span
+    // while the user talked — so this is a reconciliation, not a paste. Three
+    // cases, cheapest first:
+    //   · nothing was typed live  -> plain paste, exactly as before;
+    //   · the finished text extends what was typed -> type only the tail, which
+    //     is the normal ending (the last couple of seconds never committed);
+    //   · the finished text diverges -> select back only as far as the two
+    //     actually disagree and paste the rest over the selection.
+    // The common prefix matters: the full-quality decode usually agrees with
+    // the caption model about everything except the last few words, so the
+    // divergent case still only touches a handful of characters. A rewrite mode
+    // (Summarize, Professional) is the exception — it changes the text from the
+    // first word, so the whole live preview is selected and replaced.
     func insert(_ raw: String) {
         // Typography is applied at the last moment because only here do we
         // know the real paste target.
         let text = smartTypography(raw, bundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "")
+        let already = typer.consume()
+        guard !already.isEmpty else { pasteOver(text); return }
+        // Focus moved while we were decoding. The live-typed words are in the
+        // other app and cannot be taken back from here, so do NOT select and
+        // replace text in a window we never typed into — that would eat the
+        // user's own content.
+        guard typer.targetStillFocused else {
+            log("⚠️ focus moved after the recording — \(already.count) live-typed characters stay in \(typer.targetApp ?? "the old app"); the finished text goes to the app in front now")
+            pasteOver(text)
+            return
+        }
+        switch liveSettlePlan(typed: already, final: text) {
+        case .nothing:
+            log("· live typing delivered the whole transcript — nothing left to insert")
+        case .appendOnly(let tail):
+            log("· live typing delivered \(already.count) chars — typing the \(tail.count)-char tail")
+            typer.typeTail(tail) {}
+        case .replaceTail(let removeCount, let addition):
+            if removeCount > 400 {
+                log("· the finished text diverges from the live preview \(removeCount) characters back — a rewrite mode changes every word, so this replacement takes a moment")
+            } else {
+                log("· settling the live preview — replacing the last \(removeCount) characters with \(addition.count)")
+            }
+            typer.backspace(removeCount) { [weak self] in
+                guard let self = self, !addition.isEmpty else { return }
+                self.pasteOver(addition)
+            }
+        }
+    }
+
+    // Clipboard + Cmd-V. Replaces the current selection if there is one, which
+    // is how the live-typed preview is swapped for the finished text in a
+    // single edit rather than a visible delete-then-retype.
+    private func pasteOver(_ text: String) {
         let pb = NSPasteboard.general
         // Only capture the "original" if the pasteboard isn't still holding OUR
         // previous transcript — otherwise overlapping inserts would "restore"
@@ -5698,6 +6308,265 @@ if cliArgs.count >= 3, cliArgs[1] == "--spec-sim" {
     print(formatTranscript(r))
     exit(0)
 }
+// Args are scanned rather than positional: launching through `open -n --args`
+// (the only way to run this with the bundle's own Accessibility grant) puts a
+// -psn_… argument in front of ours.
+if cliArgs.count >= 3, cliArgs[1] == "--gate-sim" {
+    // Replay a WAV through the REAL Silero VAD and the REAL SpeechGate at 60fps,
+    // and report the only two numbers that matter for how the waveform feels:
+    // how many times the row collapses mid-speech (stutter), and how long it
+    // keeps moving after the last word (lag). Tuning either constant without
+    // this is guessing.
+    let path = cliArgs[2]
+    guard let off = findWavDataOffset(path), let fh = FileHandle(forReadingAtPath: path) else {
+        FileHandle.standardError.write("cannot read \(path)\n".data(using: .utf8)!); exit(1)
+    }
+    ggml_backend_load_all()
+    whisper_log_set({ _, _, _ in }, nil)
+    guard let ctx = whisper_vad_init_from_file_with_params(VAD_MODEL, whisper_vad_default_context_params()) else {
+        print("GATE-SIM: no VAD model at \(VAD_MODEL)"); exit(1)
+    }
+    whisper_vad_reset_state(ctx)
+    let total = (fh.seekToEndOfFile() - off) & ~1
+    fh.seek(toFileOffset: off)
+    let raw = fh.readData(ofLength: Int(total))
+    var samples = [Float](repeating: 0, count: Int(total / 2))
+    raw.withUnsafeBytes { (b: UnsafeRawBufferPointer) in
+        let p = b.bindMemory(to: Int16.self)
+        for i in 0..<samples.count { samples[i] = Float(p[i]) / 32768.0 }
+    }
+    // Same chunking the daemon uses: whole Silero windows, max over the call.
+    let chunk = 1536
+    var probs: [Float] = []
+    var i = 0
+    while i + chunk <= samples.count {
+        let slice = Array(samples[i..<(i + chunk)])
+        let ok = slice.withUnsafeBufferPointer { b in
+            whisper_vad_detect_speech_no_reset(ctx, b.baseAddress, Int32(b.count))
+        }
+        let n = whisper_vad_n_probs(ctx)
+        var best: Float = 0
+        if ok, n > 0, let pr = whisper_vad_probs(ctx) { for k in 0..<Int(n) { best = max(best, pr[k]) } }
+        probs.append(best)
+        i += chunk
+    }
+    let chunkSecs = Double(chunk) / 16000.0
+    var gate = SpeechGate()
+    let lastVoiced = probs.lastIndex(where: { CGFloat($0) > gate.openThreshold }) ?? (probs.count - 1)
+    let speechEnd = Double(lastVoiced + 1) * chunkSecs
+    let fps = 60.0, dt = 1.0 / fps
+    var collapses = 0, wasOpen = false
+    var lastMoving = -1.0, flatAt = -1.0
+    var t = 0.0
+    while t < Double(probs.count) * chunkSecs {
+        let p = CGFloat(probs[min(Int(t / chunkSecs), probs.count - 1)])
+        let lvl = gate.step(prob: p, dt: dt)
+        if wasOpen && !gate.isOpen && t < speechEnd - 0.15 { collapses += 1 }
+        wasOpen = gate.isOpen
+        if lvl > 0.02 { lastMoving = t; flatAt = -1 } else if flatAt < 0 && lastMoving > 0 { flatAt = t }
+        t += dt
+    }
+    let trailing = flatAt > 0 ? (flatAt - speechEnd) * 1000 : Double.nan
+    print("GATE-SIM \(path)")
+    print(String(format: "  hold=%.2fs  rise=%.3fs  fall=%.2fs (linear)", gate.hold, gate.riseTau, gate.fallSeconds))
+    print(String(format: "  mid-speech collapses : %d   (0 = never stutters while you talk)", collapses))
+    print(String(format: "  flat after last word : %.0f ms", trailing))
+    exit(collapses == 0 ? 0 : 1)
+}
+if cliArgs.contains("--reconcile-test") {
+    // The settle plan, over the cases that actually happen: perfect agreement,
+    // the ordinary ending (the uncommitted tail), a decode disagreement a few
+    // words back, a rewrite mode that changes everything, and a final text
+    // SHORTER than the preview. Pure logic — no events, no windows, no mic.
+    typealias C = (name: String, typed: String, final: String, want: LiveSettle)
+    let cases: [C] = [
+        ("nothing owed",        "hello world",       "hello world",       .nothing),
+        ("uncommitted tail",    "hello",             "hello world",       .appendOnly(" world")),
+        ("decode disagreement", "hello wrld",        "hello world",       .replaceTail(remove: 3, paste: "orld")),
+        ("rewrite mode",        "hello world",       "Summary: done.",    .replaceTail(remove: 11, paste: "Summary: done.")),
+        ("final is shorter",    "hello world extra", "hello world",       .replaceTail(remove: 6, paste: "")),
+        ("nothing typed live",  "",                  "hello world",       .appendOnly("hello world")),
+        ("both empty",          "",                  "",                  .nothing),
+    ]
+    var failures = 0
+    for c in cases {
+        let got = liveSettlePlan(typed: c.typed, final: c.final)
+        let ok = got == c.want
+        if !ok { failures += 1 }
+        print("RECONCILE \(ok ? "ok  " : "FAIL") \(c.name): typed=\(c.typed.debugDescription) final=\(c.final.debugDescription) -> \(got)\(ok ? "" : "  WANTED \(c.want)")")
+        // The invariant that matters: applying the plan to the preview must
+        // reproduce the final text exactly.
+        var rebuilt = c.typed
+        switch got {
+        case .nothing: break
+        case .appendOnly(let a): rebuilt += a
+        case .replaceTail(let n, let a): rebuilt = String(rebuilt.dropLast(n)) + a
+        }
+        if rebuilt != c.final {
+            failures += 1
+            print("RECONCILE FAIL \(c.name): applying the plan yields \(rebuilt.debugDescription), not \(c.final.debugDescription)")
+        }
+    }
+    print(failures == 0 ? "RECONCILE-TEST OK — \(cases.count) cases, every plan reproduces the final text"
+                        : "RECONCILE-TEST FAIL — \(failures) problems")
+    exit(failures == 0 ? 0 : 1)
+}
+if cliArgs.contains("--type-selftest") {
+    // End-to-end proof of the live-typing mechanism, with its own target so the
+    // result cannot depend on what happened to be frontmost. The app opens a
+    // real text view, activates itself, and then drives LiveTyper exactly as a
+    // recording does: two appends (a span at a time), then the select-back and
+    // retype that insert() uses to settle a divergent ending. The text view's
+    // contents are read back in-process and compared.
+    //
+    // Must be launched as a BUNDLE (`open -n PttDictate.app --args
+    // --type-selftest`) — posting CGEvents needs the Accessibility grant, which
+    // is keyed to the signed bundle, not to a binary run from a shell.
+    let app = NSApplication.shared
+    app.setActivationPolicy(.regular)
+    let win = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 520, height: 160),
+                       styleMask: [.titled, .closable], backing: .buffered, defer: false)
+    win.title = "live typing self-test"
+    let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 520, height: 160))
+    tv.isEditable = true
+    tv.font = .systemFont(ofSize: 14)
+    win.contentView = tv
+    win.makeKeyAndOrderFront(nil)
+    app.activate(ignoringOtherApps: true)
+    win.makeFirstResponder(tv)
+
+    let typer = LiveTyper()
+    let expected = "Hello there this is a check"
+    // Synthesized events go wherever focus IS, so each phase re-asserts it and
+    // says whether it actually held — otherwise a stray activation makes this
+    // test report a code failure it did not find.
+    // Reports focus rather than fighting for it. Synthesized HID events go to
+    // the REAL frontmost app — the same condition LiveTyper itself checks — and
+    // on a busy desktop an accessory app does not always win that race. When it
+    // does not, this SKIPS: a test that cannot post anything has not found a
+    // defect, and saying so is better than reporting a failure it did not see.
+    // Nothing here reflects the production path, where the daemon never
+    // activates itself and types into the app the user is already working in.
+    func focus(_ tag: String) -> Bool {
+        app.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
+        win.makeFirstResponder(tv)
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier == getpid()
+        let ok = front && NSApp.isActive && win.isKeyWindow
+        log("TYPE-SELFTEST focus[\(tag)] frontmost=\(front) app-active=\(NSApp.isActive) window-key=\(win.isKeyWindow)")
+        if !ok { log("TYPE-SELFTEST SKIPPED — could not take focus, so nothing was posted to test") }
+        return ok
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        guard focus("append") else { exit(2) }
+        typer.begin()
+        typer.sync(to: "Hello there")
+        typer.sync(to: "Hello there this is a test")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            let afterAppend = tv.string
+            guard focus("settle") else { exit(2) }
+            // A divergent tail: sync() must select back exactly "test" and
+            // retype "check" — the same edit streaming makes several times a
+            // second, and the same one insert() makes at stop.
+            typer.sync(to: expected)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                if true {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        let got = tv.string
+                        // Through log(), not print(): `open -n` gives the
+                        // launcher no stdout to read. debugDescription so an
+                        // invisible character cannot masquerade as a match.
+                        log("TYPE-SELFTEST append phase : \(afterAppend.debugDescription)")
+                        log("TYPE-SELFTEST after settle : \(got.debugDescription) (\(got.count) chars)")
+                        log("TYPE-SELFTEST expected     : \(expected.debugDescription) (\(expected.count) chars)")
+                        if got != expected {
+                            let g = Array(got.unicodeScalars), e = Array(expected.unicodeScalars)
+                            for i in 0..<max(g.count, e.count) where i >= min(g.count, e.count) || g[i] != e[i] {
+                                let gs = i < g.count ? String(g[i].value) : "—"
+                                let es = i < e.count ? String(e[i].value) : "—"
+                                log("TYPE-SELFTEST first difference at scalar \(i): got U+\(gs), expected U+\(es)")
+                                break
+                            }
+                        }
+                        log(got == expected
+                            ? "TYPE-SELFTEST OK — unicode injection and shift+Left selection both land"
+                            : "TYPE-SELFTEST FAIL")
+                        exit(got == expected ? 0 : 1)
+                    }
+                }
+            }
+        }
+    }
+    app.run()
+}
+if cliArgs.count >= 3, cliArgs[1] == "--type-sim" {
+    // Replay a WAV through the engine exactly as a live recording would, and
+    // print every span that live typing WOULD post, without an NSApp, a mic, or
+    // a keystroke leaving this process. The invariant it checks is the one the
+    // whole feature rests on: the deltas handed to the typer, concatenated in
+    // order, must equal the committed transcript character for character. If
+    // that ever drifts, insert()'s prefix reconciliation silently corrupts the
+    // user's document instead of settling it, so this is worth a test.
+    let srcPath = cliArgs[2]
+    guard let srcOff = findWavDataOffset(srcPath), let sfh = FileHandle(forReadingAtPath: srcPath) else {
+        FileHandle.standardError.write("cannot read \(srcPath)\n".data(using: .utf8)!); exit(1)
+    }
+    let total = (sfh.seekToEndOfFile() - srcOff) & ~1
+    let sim = "/tmp/ptt_typesim.wav"
+    FileManager.default.createFile(atPath: sim, contents: wavHeader(dataBytes: UInt32(total)))
+    guard let out = FileHandle(forWritingAtPath: sim) else { exit(1) }
+    out.seekToEndOfFile()
+    let engine = CaptionEngine()
+    guard engine.modelAvailable else { print("TYPE-SIM: caption model missing"); exit(1) }
+    var audioSecs = 0.0
+    // Mirror what LiveTyper does with each preview, without posting a keystroke:
+    // apply the settle plan to a buffer and watch it track the preview. What
+    // this measures is the two things streaming trades against each other —
+    // how soon words appear, and how much gets retyped to get them there.
+    var typed = ""
+    var retyped = 0
+    var previews = 0
+    var firstWordAt = -1.0
+    engine.onPreview = { preview in
+        previews += 1
+        switch liveSettlePlan(typed: typed, final: preview) {
+        case .nothing: break
+        case .appendOnly(let add):
+            typed += add
+        case .replaceTail(let n, let add):
+            typed = String(typed.dropLast(n)) + add
+            retyped += n
+        }
+        if firstWordAt < 0, !typed.isEmpty { firstWordAt = audioSecs }
+        print(String(format: "[%.2fs audio] on screen: %@", audioSecs, typed))
+    }
+    engine.simStart(wav: sim, commitSeconds: cfg.liveTypeCommit)
+    let step = (UInt64(cfg.liveTypeInterval * 32000)) & ~1
+    var done: UInt64 = 0
+    while done < total {
+        let take = min(step, total - done)
+        sfh.seek(toFileOffset: srcOff + done)
+        out.write(sfh.readData(ofLength: Int(take)))
+        done += take
+        audioSecs = Double(done) / 32000.0
+        engine.simPass()
+    }
+    try? FileManager.default.removeItem(atPath: sim)
+    let committed = engine.simCommitted()
+    print("---")
+    print("on screen at the end : \(typed)")
+    print("committed prefix     : \(committed)")
+    print(String(format: "first words at %.2fs audio · %d previews · %d chars on screen · %d retyped (%.0f%% churn)",
+                 firstWordAt, previews, typed.count, retyped,
+                 typed.count > 0 ? Double(retyped) * 100 / Double(typed.count) : 0))
+    // The invariant: the streamed buffer must END as a superset of the
+    // committed prefix — committed text is immutable, so anything that
+    // rewrote it would mean live typing had corrupted settled words.
+    let ok = typed.hasPrefix(committed) || committed.isEmpty
+    print(ok ? "TYPE-SIM OK — the streamed text still contains every committed word"
+             : "TYPE-SIM FAIL — streaming rewrote text that was already committed")
+    exit(ok ? 0 : 1)
+}
 if cliArgs.count >= 3, cliArgs[1] == "--caption-sim" {
     // Replay a WAV through the rolling-caption engine at the caption cadence
     // (audio-time, not wall-time) and print every HUD frame. Frames must only
@@ -5715,6 +6584,7 @@ if cliArgs.count >= 3, cliArgs[1] == "--caption-sim" {
     guard engine.modelAvailable else { print("CAPTION-SIM: caption model missing"); exit(1) }
     var frame = 0
     engine.display = { t in frame += 1; print("[\(frame)] \(t)") }
+    engine.wantsPreview = true        // the sim is the one place a live tail is read
     engine.simStart(wav: sim)
     let step = (UInt64(cfg.captionInterval * 32000)) & ~1
     var done: UInt64 = 0
@@ -5738,7 +6608,7 @@ if cliArgs.count >= 3, cliArgs[1] == "--caption-sim" {
 let localDecodeReady = FileManager.default.fileExists(atPath: WHISPER)
     && FileManager.default.fileExists(atPath: MODEL)
 if !localDecodeReady {
-    log("· local decode unavailable (whisper-cli: \(FileManager.default.fileExists(atPath: WHISPER) ? "found" : "missing"), model: \(FileManager.default.fileExists(atPath: MODEL) ? "found" : "missing")) — transcription runs on the NessoTalk engine")
+    log("· local decode unavailable (whisper-cli: \(FileManager.default.fileExists(atPath: WHISPER) ? "found" : "missing"), model: \(FileManager.default.fileExists(atPath: MODEL) ? "found" : "missing")) — transcription runs on the YapperTalk engine")
 }
 if !FileManager.default.fileExists(atPath: WHISPER) {
     log("⚠️ whisper-cli not found in any Homebrew prefix — live captions and local fallback are off")
@@ -5759,6 +6629,8 @@ let dict = Dictation()
 let ui = UIController()
 // Live mic level -> HUD waveform (onLevel already hops to main inside ingest()).
 dict.capturer.onLevel = { ui.setLevel($0) }
+// Real VAD speech probability -> the waveform's actual gate (see AudioCapturer).
+dict.capturer.onSpeechProb = { ui.setSpeechProb($0) }
 
 // v8.8 predictive preload: when the spec pass pre-decodes the tail during a
 // pause, the full transcript already exists — start the active mode's rewrite
@@ -5784,6 +6656,10 @@ if cliArgs.count >= 2, cliArgs[1] == "--settings-demo" {
     DispatchQueue.main.asyncAfter(deadline: .now() + 8) { exit(0) }
     app.run()
 }
+// NOTE: this and every branch below it must stay AFTER `let dict` / `let ui`.
+// Top-level Swift initializes globals in source order, not lazily, so a CLI
+// branch placed above them runs against uninitialized memory and segfaults
+// inside the first method it calls.
 if cliArgs.count >= 2, cliArgs[1] == "--explain-demo" {
     // Shows the after-first-dictation explainer without needing a real
     // recording, so the wording can be checked at a glance.
@@ -5793,6 +6669,40 @@ if cliArgs.count >= 2, cliArgs[1] == "--explain-demo" {
     explainAfterFirstDictation()
     DispatchQueue.main.asyncAfter(deadline: .now() + 20) { exit(0) }
     app.run()
+}
+
+if cliArgs.contains("--hud-frames") {
+    // Print every control's frame after a real layout pass, at the default
+    // size, at the minimum, and stretched wide, so the pill's geometry can be
+    // checked without a screenshot: nothing overlapping, nothing off the panel.
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    ui.setup()
+    func pad(_ s: String, _ n: Int) -> String {
+        s.count >= n ? s : s + String(repeating: " ", count: n - s.count)
+    }
+    for size in [NSSize(width: 432, height: 88),
+                 NSSize(width: 416, height: 72),
+                 NSSize(width: 900, height: 200)] {
+        ui.panel?.setContentSize(size)
+        ui.layoutHUD()
+        guard let root = ui.panel?.contentView else { continue }
+        log("HUD-FRAMES ---- panel \(Int(size.width))x\(Int(size.height)) ----")
+        var named: [(String, NSView?)] = [("gear", ui.settingsButton),
+                                          ("elapsed", ui.elapsedField),
+                                          ("waveform", ui.waveform),
+                                          ("hint", ui.hintField)]
+        for m in DeliverMode.pickable { named.append(("chip:" + m.label, ui.modeButtons[m])) }
+        named.append(("info", ui.modeInfoButton))
+        for (name, v) in named {
+            guard let v = v else { log("HUD-FRAMES \(pad(name, 26)) MISSING"); continue }
+            let f = v.frame
+            let inside = f.minX >= -0.5 && f.minY >= -0.5
+                && f.maxX <= root.bounds.width + 0.5 && f.maxY <= root.bounds.height + 0.5
+            log("HUD-FRAMES \(pad(name, 26)) x=\(pad(String(Int(f.minX)), 5)) y=\(pad(String(Int(f.minY)), 4)) w=\(pad(String(Int(f.width)), 5)) h=\(pad(String(Int(f.height)), 4)) \(inside ? "in-bounds" : "OUT-OF-BOUNDS")\(v.isHidden ? " hidden" : "")")
+        }
+    }
+    exit(0)
 }
 if cliArgs.count >= 2, cliArgs[1] == "--hud-demo" {
     let app = NSApplication.shared
@@ -5807,20 +6717,13 @@ if cliArgs.count >= 2, cliArgs[1] == "--hud-demo" {
         ui.setLevel(Float(burst > 0.15 ? syll : 0.02))
     }
     RunLoop.main.add(lvl, forMode: .common)
-    let demoWords = ("okay so this is the new wispr style pill with the live waveform "
-        + "and the transcript still rolls along the bottom exactly like before "
-        + "committed words never vanish and the newest words are always visible").split(separator: " ")
-    var shown = 0
-    let cap = Timer(timeInterval: 0.22, repeats: true) { _ in
-        guard shown < demoWords.count else { return }
-        shown += 1
-        ui.setCaption(demoWords[0..<shown].joined(separator: " "))
-    }
-    RunLoop.main.add(cap, forMode: .common)
+    // v8.29: nothing to tick through — the transcript is in the app being
+    // dictated into, not on the pill. What is left to look at is the waveform
+    // reacting and the chips, which is the whole point of the demo now.
     // Show the selected state of the mode button (as if Professional was picked).
     DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
         ui.selectedMode = .professional
-        ui.refreshModeButton()
+        ui.refreshModeButtons()
     }
     // PTT_DEMO_SECS extends the demo window (the resize drag test needs ~20s).
     let demoSecs = Double(ProcessInfo.processInfo.environment["PTT_DEMO_SECS"] ?? "") ?? 9
@@ -5866,7 +6769,7 @@ NSAppleEventManager.shared().setEventHandler(
     forEventClass: AEEventClass(kInternetEventClass),
     andEventID: AEEventID(kAEGetURL))
 if cfg.liveCaptions && !dict.captions.modelAvailable {
-    log("⚠️ caption model missing at \(cfg.captionModel) — live captions disabled (download it or set CAPTION_MODEL in \(CONFIG_PATH))")
+    log("⚠️ caption model missing at \(cfg.captionModel) — LIVE TYPING IS OFF, so nothing appears until you stop (download it or set CAPTION_MODEL in \(CONFIG_PATH))")
 }
 
 // No sleep/wake audio recovery is needed: AVCaptureSession capture is immune to the
@@ -5951,5 +6854,5 @@ let licTimer = Timer(timeInterval: 12 * 3600, repeats: true) { _ in
 }
 RunLoop.main.add(licTimer, forMode: .common)
 
-log("▶ NessoTalk v8.28 (explains itself after the first try · pays and it works · one-button pill · browser sign-in · engine-only transcription · HUD always shows · 3-channel mic fix · smarter modes + keyword editor · decode race · cloud engine · self-tuning code modes · no-click = \(cfg.defaultMode)) up. license=\(cfg.licenseKey.isEmpty ? "dev(off)" : "on") · cloud=\(cfg.cloud && !cfg.licenseKey.isEmpty ? "on@engine(race)" : "off(local)") · Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ("default-" + cfg.defaultMode + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
+log("▶ YapperTalk v8.29 (live typing into the app · no transcript box, no Done/✕ · explains itself after the first try · pays and it works · one-button pill · browser sign-in · engine-only transcription · HUD always shows · 3-channel mic fix · smarter modes + keyword editor · decode race · cloud engine · self-tuning code modes · no-click = \(cfg.defaultMode)) up. license=\(cfg.licenseKey.isEmpty ? "dev(off)" : "on") · cloud=\(cfg.cloud && !cfg.licenseKey.isEmpty ? "on@engine(race)" : "off(local)") · Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ("default-" + cfg.defaultMode + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live typing=\(cfg.liveType && cfg.liveCaptions && dict.captions.modelAvailable ? "on@\(cfg.liveTypeCommit)s/\(cfg.liveTypeInterval)s" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
 app.run()

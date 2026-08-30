@@ -6,15 +6,25 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 DIR="$HOME/.dictation"
 APP="$DIR/PttDictate.app"
 BIN="$APP/Contents/MacOS/ptt-dictate"
-# Stable codesign identity (Apple Development) + a real bundle id (com.brady.ptt-dictate
-# in Info.plist). TCC keys Mic + Accessibility on the BUNDLE ID, so rebuilds never wipe
-# the grants, and `tccutil reset {Microphone,Accessibility} com.brady.ptt-dictate` can
-# cleanly repair a bad state — neither was possible with the old bare executable.
-SIGN_ID=99F202BCAC5ED8E803E5DAF0E8F5A4B366276831
+# Stable codesign identity (self-signed "ptt-dictate-dev2" in the login
+# keychain) + a real bundle id (com.brady.ptt-dictate in Info.plist). TCC keys
+# Mic + Accessibility on the BUNDLE ID as long as the signing identity is
+# stable, so rebuilds never wipe the grants, and `tccutil reset
+# {Microphone,Accessibility} com.brady.ptt-dictate` can cleanly repair a bad
+# state. NOTE (2026-08-30): the previous identity ("ptt-dictate-dev") started
+# failing to sign with errSecInternalComponent after working fine for hours —
+# its `-T /usr/bin/codesign` trusted-app grant is pinned to codesign's binary
+# hash at import time, so a Command Line Tools / security update can silently
+# invalidate it. If `ptt build` ever again prints "fell back to ad-hoc", the
+# identity is broken the same way — regenerate one (see the recipe in scratch
+# history: openssl self-signed codeSigning cert -> security import -T
+# /usr/bin/codesign -T /usr/bin/security -> security add-trusted-cert -p
+# codeSign) and paste the new SHA-1 in here.
+SIGN_ID=6B25C06943AE83C0D40432F365AAD5834E42C45B
 case "$1" in
   start)   launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; launchctl kickstart -p "$DOMAIN/$LABEL" ;;
   stop)    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null && echo "stopped" ;;
-  signin)  open "nessotalk://signin" && echo "Opening your browser to connect this Mac to your NessoTalk account." ;;
+  signin)  open "nessotalk://signin" && echo "Opening your browser to connect this Mac to your YapperTalk account." ;;
   restart) launchctl kickstart -k "$DOMAIN/$LABEL" && echo "restarted" ;;
   call)
     # Toggle call-mode in the config (no rebuild): disables/aggressive-denoises for
@@ -54,6 +64,27 @@ case "$1" in
     if [ "$new" = 1 ]; then echo "whisper-mode ON  — dictate at a whisper (strong gain + low VAD gate, restarted)";
     else echo "whisper-mode OFF — normal voice chain (restarted)"; fi
     ;;
+  parakeet)
+    # Toggle the Parakeet TDT local engine: a transducer, structurally unable
+    # to hallucinate over silence/noise the way whisper's decoder can, and
+    # matching whisper large-v3 accuracy at under half the parameters (Open
+    # ASR Leaderboard). English only for now. Same shape as `ptt call`.
+    cfgf="$DIR/config"
+    cur=$(grep -E '^PARAKEET=' "$cfgf" | tail -1 | cut -d= -f2)
+    case "${2:-toggle}" in
+      on|1)  new=1 ;;
+      off|0) new=0 ;;
+      *)     [ "$cur" = "1" ] && new=0 || new=1 ;;
+    esac
+    if grep -qE '^PARAKEET=' "$cfgf"; then
+      sed -i '' -E "s/^PARAKEET=.*/PARAKEET=$new/" "$cfgf"
+    else
+      printf '\nPARAKEET=%s\n' "$new" >> "$cfgf"
+    fi
+    launchctl kickstart -k "$DOMAIN/$LABEL" >/dev/null 2>&1
+    if [ "$new" = 1 ]; then echo "parakeet ON  — English dictation decodes on Parakeet TDT first, whisper as fallback (restarted)";
+    else echo "parakeet OFF — whisper only (restarted)"; fi
+    ;;
   cloud)
     # Toggle the hosted NessoTalk engine (v8.17 cloud pivot). ON = transcribe
     # on our engine, local whisper as automatic fallback. OFF = all-local.
@@ -72,7 +103,7 @@ case "$1" in
       printf '\nCLOUD=%s\n' "$new" >> "$cfgf"
     fi
     launchctl kickstart -k "$DOMAIN/$LABEL" >/dev/null 2>&1
-    if [ "$new" = 1 ]; then echo "cloud ON  — hosted NessoTalk engine first, local decode as fallback (restarted)";
+    if [ "$new" = 1 ]; then echo "cloud ON  — hosted YapperTalk engine first, local decode as fallback (restarted)";
     else echo "cloud OFF — all-local decode (restarted)"; fi
     ;;
   learn)
@@ -116,7 +147,23 @@ SEED
   build)
     cd "$DIR" || exit 1
     echo "compiling…"
-    swiftc -O ptt-dictate.swift -o ptt-dictate.new || { echo "compile FAILED — keeping current binary"; exit 1; }
+    # -import-objc-header bridge.h + the whisper-cpp/ggml link: the real-time
+    # VAD gate on the waveform (2026-08-30) calls libwhisper's C API directly
+    # in-process (whisper_vad_detect_speech_no_reset) instead of spawning a
+    # process per check. Paths use Homebrew's version-independent `opt`
+    # symlinks so a `brew upgrade` of whisper-cpp/ggml doesn't break the build.
+    # -rpath is required: this runs under launchd, not an interactive shell,
+    # so the dynamic linker needs an explicit path to find the dylibs at
+    # startup rather than relying on ambient shell environment.
+    WCPP="$(brew --prefix whisper-cpp 2>/dev/null || echo /opt/homebrew/opt/whisper-cpp)"
+    GGML="$(brew --prefix ggml 2>/dev/null || echo /opt/homebrew/opt/ggml)"
+    swiftc -O ptt-dictate.swift -o ptt-dictate.new \
+      -import-objc-header bridge.h \
+      -I "$WCPP/include" -I "$GGML/include" \
+      -L "$WCPP/lib" -lwhisper -L "$GGML/lib" -lggml -lggml-base \
+      -Xlinker -rpath -Xlinker "$WCPP/lib" \
+      -Xlinker -rpath -Xlinker "$GGML/lib" \
+      || { echo "compile FAILED — keeping current binary"; exit 1; }
     launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null
     mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
     cp -f Info.plist "$APP/Contents/Info.plist"
@@ -158,7 +205,7 @@ SEED
     mode=$(grep -E '^PRIVACY_MODE=' "$cfgf" | tail -1 | cut -d= -f2); mode=${mode:-1}
     days=$(grep -E '^HISTORY_DAYS=' "$cfgf" | tail -1 | cut -d= -f2); days=${days:-7}
     clip=$(grep -E '^KEEP_LAST_CLIP=' "$cfgf" | tail -1 | cut -d= -f2); clip=${clip:-0}
-    echo "NessoTalk privacy"
+    echo "YapperTalk privacy"
     if [ "$mode" = "1" ]; then
       echo "  Mode:            private. What you say is never written to disk."
     else
