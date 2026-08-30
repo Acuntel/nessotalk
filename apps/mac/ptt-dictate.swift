@@ -899,6 +899,38 @@ func showAccessAlert(_ reason: String) {
     }
 }
 
+
+// ===================== the moment it makes sense ==========================
+// Explaining dictation BEFORE somebody has tried it is a numbered list they
+// skim and forget. Explaining it thirty seconds later, right after their own
+// words appeared on screen, is the same information landing on an experience
+// they just had. So this fires once, after the FIRST successful dictation, and
+// never again.
+let FIRST_RUN_MARKER = "\(HOME)/.dictation/.explained"
+func explainAfterFirstDictation() {
+    guard !FileManager.default.fileExists(atPath: FIRST_RUN_MARKER) else { return }
+    FileManager.default.createFile(atPath: FIRST_RUN_MARKER, contents: Data())
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        let a = NSAlert()
+        a.messageText = "That is the whole thing"
+        a.informativeText = [
+            "You tapped Right Command, said a sentence, and tapped it again. Your words were written on our servers, tidied up, and typed straight into wherever your cursor already was.",
+            "",
+            "Two things worth knowing.",
+            "",
+            "The button in the middle of the bar changes how it writes. Normal keeps your words as they are. Professional cleans them into something you can send. There are three more.",
+            "",
+            "The red X throws a recording away, and Escape does the same.",
+            "",
+            "It works in every app on your Mac, and nothing was saved.",
+        ].joined(separator: "\n")
+        a.addButton(withTitle: "Got it")
+        a.alertStyle = .informational
+        NSApp.activate(ignoringOtherApps: true)
+        a.runModal()
+    }
+}
+
 // ===================== WAV helpers =====================
 // CoreAudio's in-flight WAVE file has a stale header (frame count 0) but the
 // raw PCM keeps appending after the 'data' chunk header — captions read it live.
@@ -4017,7 +4049,7 @@ func polishForText(_ text: String, context: String = "") -> String? {
 // Invalid/revoked/expired/seat-capped -> recording disarms (an in-flight
 // session still finishes; we never eat words mid-recording). Empty key = dev.
 let LICENSE_PUBKEY_B64 = "DgOqB8kIOGQDePmlGSFcbZVVbujNZ9CVM+XkPFSJZjw="
-let APP_VERSION = "8.27"
+let APP_VERSION = "8.28"
 var updateAvailable = ""   // newest version the server reports, empty when current
 var licenseValid = true
 let LICENSE_TOKEN_PATH = "\(HOME)/.dictation/.license_token"
@@ -4752,6 +4784,125 @@ func producerInboxAppend(_ text: String) {
     }
 }
 
+// Session markers for the resident producer (Music Mic): the brain reacts to
+// {"event": "session-start"/"session-end"} lines in the inbox.
+func producerInboxEvent(_ event: String) {
+    let path = NSString(string: "~/.dictation/producer/inbox.jsonl").expandingTildeInPath
+    let obj: [String: Any] = ["ts": Date().timeIntervalSince1970, "event": event]
+    guard let d = try? JSONSerialization.data(withJSONObject: obj),
+          let s = String(data: d, encoding: .utf8) else { return }
+    let line = s + "\n"
+    if let fh = FileHandle(forWritingAtPath: path) {
+        defer { try? fh.close() }
+        fh.seekToEndOfFile()
+        fh.write(line.data(using: .utf8)!)
+    } else {
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+}
+
+// ===================== Music Mic — the conversation window =====================
+// A small dark panel at the bottom of the screen showing the live transcript:
+// "Me: ..." (from the producer inbox) and "Music Mic: ..." (from the outbox,
+// written by producer-ctl say/ask). Visible for the whole session.
+final class MusicMicPanel {
+    static let shared = MusicMicPanel()
+    private var panel: NSPanel?
+    private var body: NSTextField?
+    private var timer: Timer?
+    private var sessionStartTs: Double = 0   // only THIS session's lines render
+    private let inboxPath = NSString(string: "~/.dictation/producer/inbox.jsonl").expandingTildeInPath
+    private let outboxPath = NSString(string: "~/.dictation/producer/outbox.jsonl").expandingTildeInPath
+
+    func show() {
+        DispatchQueue.main.async {
+            self.sessionStartTs = Date().timeIntervalSince1970 - 3
+            if self.panel == nil { self.build() }
+            self.refresh()
+            self.panel?.orderFrontRegardless()
+            self.timer?.invalidate()
+            self.timer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
+                self?.refresh()
+            }
+        }
+    }
+
+    func hide() {
+        DispatchQueue.main.async {
+            self.timer?.invalidate(); self.timer = nil
+            self.panel?.orderOut(nil)
+        }
+    }
+
+    private func build() {
+        let w: CGFloat = 660, h: CGFloat = 234
+        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: w, height: h),
+                        styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+        p.level = .statusBar
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        p.hidesOnDeactivate = false
+        p.becomesKeyOnlyIfNeeded = true
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.isReleasedWhenClosed = false
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: w, height: h))
+        root.wantsLayer = true
+        root.layer?.backgroundColor = NSColor(calibratedWhite: 0.05, alpha: 0.94).cgColor
+        root.layer?.cornerRadius = 16
+        let title = NSTextField(labelWithString: "🎛 MUSIC MIC — live session · tap Left ⌘ to end")
+        title.font = .systemFont(ofSize: 12, weight: .semibold)
+        title.textColor = NSColor(calibratedWhite: 0.7, alpha: 1)
+        title.frame = NSRect(x: 16, y: h - 28, width: w - 32, height: 16)
+        root.addSubview(title)
+        let b = NSTextField(wrappingLabelWithString: "")
+        b.font = .monospacedSystemFont(ofSize: 11.5, weight: .regular)
+        b.textColor = NSColor(calibratedWhite: 0.92, alpha: 1)
+        b.frame = NSRect(x: 16, y: 10, width: w - 32, height: h - 46)
+        b.cell?.truncatesLastVisibleLine = true
+        root.addSubview(b)
+        p.contentView = root
+        if let scr = NSScreen.main {
+            let f = scr.visibleFrame
+            p.setFrameOrigin(NSPoint(x: f.midX - w / 2, y: f.minY + 12))
+        }
+        panel = p; body = b
+    }
+
+    private func tail(_ path: String, isOut: Bool) -> [(Double, String)] {
+        guard let fh = FileHandle(forReadingAtPath: path) else { return [] }
+        defer { try? fh.close() }
+        let size = fh.seekToEndOfFile()
+        let start = size > 8192 ? size - 8192 : 0
+        fh.seek(toFileOffset: start)
+        guard let s = String(data: fh.readDataToEndOfFile(), encoding: .utf8) else { return [] }
+        var rows: [(Double, String)] = []
+        for line in s.split(separator: "\n") {
+            guard let d = line.data(using: .utf8),
+                  let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { continue }
+            let ts = (o["ts"] as? Double) ?? 0
+            if isOut {
+                if let t = o["said"] as? String, !t.isEmpty { rows.append((ts, "Music Mic: \(t)")) }
+            } else if let ev = o["event"] as? String {
+                rows.append((ts, "· \(ev)"))
+            } else if let t = o["heard"] as? String, !t.isEmpty {
+                rows.append((ts, "Me: \(t)"))
+            }
+        }
+        return rows
+    }
+
+    private func refresh() {
+        let rows = (tail(inboxPath, isOut: false) + tail(outboxPath, isOut: true))
+            .filter { $0.0 >= sessionStartTs }
+            .sorted { $0.0 < $1.0 }
+            .suffix(8)
+        body?.stringValue = rows.isEmpty ? "🎛 listening — talk to me"
+                                         : rows.map { $0.1 }.joined(separator: "\n")
+    }
+}
+
 // Wake the resident producer if nobody is draining the inbox: the script checks
 // cursor freshness and boots a producer tab in Terminal when needed.
 func producerWake() {
@@ -4852,32 +5003,50 @@ final class Dictation: NSObject {
         producerSolo = !othersHeld
     }
 
+    // Left ⌘ = the Music Mic SESSION SWITCH (his law, 08-27): tap on -> the
+    // conversation window appears, the hands-free ears start, and the brain
+    // engages. Tap again -> everything closes and the mic goes dead.
     func producerKeyUp() {
         let wasSolo = producerSolo
         producerTriggerDown = false
         producerSolo = false
         guard wasSolo else { return }
-        if recording {
-            guard producerSession else {
-                log("· producer key tapped during a dictation — ignored")
-                return
-            }
-            stopAndTranscribe()
-        } else {
-            if IsSecureEventInputEnabled() {
-                log("· secure input active — keyboard-chord veto degraded, toggling anyway")
-            }
-            producerSession = true
-            // He pressed to talk: the producer's voice shuts up instantly so
-            // the mic never records our own speaker output back at us.
-            let hush = Process()
-            hush.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-            hush.arguments = ["-x", "say"]
-            try? hush.run()
-            startRecording()
-            guard recording else { producerSession = false; return }
-            ui.setCaption("🎛 Talking to the producer — tap Left ⌘ or click the pill to send")
-        }
+        // Debounce: one physical tap must never double-toggle the session
+        // (the 08-27 "broken" suspect: start->end->start 0.5s apart).
+        let now = Date().timeIntervalSince1970
+        guard now - lastMicToggle > 1.5 else { log("· session toggle debounced"); return }
+        lastMicToggle = now
+        if musicMicOn { endMusicMic() } else { startMusicMic() }
+    }
+
+    var musicMicOn = false
+    var lastMicToggle: TimeInterval = 0
+
+    private func runTool(_ path: String, _ args: [String]) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+        p.arguments = args
+        try? p.run()
+    }
+
+    func startMusicMic() {
+        musicMicOn = true
+        runTool("/usr/bin/pkill", ["-x", "say"])
+        producerInboxEvent("session-start")
+        MusicMicPanel.shared.show()
+        runTool("~/.local/bin/producer-ctl", ["ears-on"])   // hands-free for the whole session
+        producerWake()                                       // boot the brain if none is draining
+        log("🎛 Music Mic session ON")
+        playSound("Tink")
+    }
+
+    func endMusicMic() {
+        musicMicOn = false
+        runTool("~/.local/bin/producer-ctl", ["ears-off"])
+        producerInboxEvent("session-end")
+        MusicMicPanel.shared.hide()
+        log("🎛 Music Mic session OFF")
+        playSound("Bottle")
     }
 
     // Post a Cmd+<key> keystroke into the focused app (same mechanism insert()
@@ -5090,6 +5259,7 @@ final class Dictation: NSObject {
                     self?.insert(text)
                     logTranscript(text, tag: tag)
                     playSound("Glass")
+                    explainAfterFirstDictation()
                 } else {
                     log("… empty transcription (session \(n))")
                     playSound("Basso")
@@ -5614,6 +5784,16 @@ if cliArgs.count >= 2, cliArgs[1] == "--settings-demo" {
     DispatchQueue.main.asyncAfter(deadline: .now() + 8) { exit(0) }
     app.run()
 }
+if cliArgs.count >= 2, cliArgs[1] == "--explain-demo" {
+    // Shows the after-first-dictation explainer without needing a real
+    // recording, so the wording can be checked at a glance.
+    let app = NSApplication.shared
+    app.setActivationPolicy(.regular)
+    try? FileManager.default.removeItem(atPath: FIRST_RUN_MARKER)
+    explainAfterFirstDictation()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 20) { exit(0) }
+    app.run()
+}
 if cliArgs.count >= 2, cliArgs[1] == "--hud-demo" {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
@@ -5771,5 +5951,5 @@ let licTimer = Timer(timeInterval: 12 * 3600, repeats: true) { _ in
 }
 RunLoop.main.add(licTimer, forMode: .common)
 
-log("▶ NessoTalk v8.27 (pays and it works · one-button pill · browser sign-in · engine-only transcription · HUD always shows · 3-channel mic fix · smarter modes + keyword editor · decode race · cloud engine · self-tuning code modes · no-click = \(cfg.defaultMode)) up. license=\(cfg.licenseKey.isEmpty ? "dev(off)" : "on") · cloud=\(cfg.cloud && !cfg.licenseKey.isEmpty ? "on@engine(race)" : "off(local)") · Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ("default-" + cfg.defaultMode + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
+log("▶ NessoTalk v8.28 (explains itself after the first try · pays and it works · one-button pill · browser sign-in · engine-only transcription · HUD always shows · 3-channel mic fix · smarter modes + keyword editor · decode race · cloud engine · self-tuning code modes · no-click = \(cfg.defaultMode)) up. license=\(cfg.licenseKey.isEmpty ? "dev(off)" : "on") · cloud=\(cfg.cloud && !cfg.licenseKey.isEmpty ? "on@engine(race)" : "off(local)") · Right ⌘ toggles · Option+Right ⌘ edits selection · menu-bar 🎙/🔴 shows state · spec=\(cfg.speculative ? "on" : "off") · polish=\(cfg.polish ? ("default-" + cfg.defaultMode + "@\(cfg.polishModel)[\(cfg.polishApps)]") : "off") · pro-apps=[\(cfg.proApps)] · lang=\(cfg.language) · learned=\(loadLearnedWords().count) · snippets=\(loadSnippets().count) · server=\(cfg.useServer ? "on@8977" : "off") · chunks=\(dict.chunks.enabled ? "on@\(Int(cfg.chunkSeconds))s" : "off") · live captions=\(cfg.liveCaptions && dict.captions.modelAvailable ? "on" : "off") · VAD=\(FileManager.default.fileExists(atPath: VAD_MODEL) ? "on@\(cfg.whisperMode ? min(cfg.vadThreshold, 0.15) : cfg.callMode ? min(cfg.vadThreshold, 0.2) : cfg.vadThreshold)" : "off") · preprocess=\(cfg.preprocess && FileManager.default.fileExists(atPath: FFMPEG) ? "on" : "off") · call-mode=\(cfg.callMode ? "ON" : "off") · whisper-mode=\(cfg.whisperMode ? "ON" : "off") · mic=\(cfg.inputDevice) [\(micPlan.isEmpty ? "system default" : micPlan)] · max \(Int(cfg.maxRecordSeconds))s")
 app.run()

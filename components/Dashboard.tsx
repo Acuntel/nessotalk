@@ -1,11 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Copy, Check, LogOut } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import Walkthrough from "@/components/Walkthrough";
 
 const STRIPE_MONTHLY = "https://buy.stripe.com/00wfZh6AA6Ru6kfcxlgMw00";
 
@@ -14,13 +11,11 @@ export default function Dashboard({
   uid,
   plan,
   daysLeft,
-  licenseKey,
 }: {
   email: string;
   uid: string;
   plan: string;
   daysLeft: number;
-  licenseKey: string;
 }) {
   const router = useRouter();
   // Allowlist, not denylist. `plan !== "trial"` quietly treated any unexpected
@@ -30,7 +25,6 @@ export default function Dashboard({
   // "fourteen days free" bought you nothing you could actually run.
   const trialLive = !active && daysLeft > 0;
   const hasAccess = active || trialLive;
-  const [copied, setCopied] = useState(false);
 
   async function signOut() {
     await supabaseBrowser().auth.signOut();
@@ -38,11 +32,6 @@ export default function Dashboard({
     router.refresh();
   }
 
-  function copyKey() {
-    navigator.clipboard.writeText(licenseKey);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }
 
   function subscribe() {
     window.location.href =
@@ -83,8 +72,8 @@ export default function Dashboard({
         </h1>
         <p className="mt-2 max-w-lg text-sm leading-6 text-muted">
           {hasAccess
-            ? "Your subscription is what does the work. Your words are transcribed on the NessoTalk engine, and the app below is just how you reach it, so there is nothing heavy to install and nothing to activate."
-            : "Nothing was deleted. The app, your settings, your dictionary and your key are all exactly where you left them, and subscribing switches them back on straight away."}
+            ? "One button, then you are talking. Everything else happens on our side."
+            : "Nothing was deleted. Everything you set up is exactly where you left it, and subscribing switches it back on straight away."}
         </p>
 
         {/* One bright thing to do per state, and nothing dimmed. A greyed-out
@@ -111,36 +100,35 @@ export default function Dashboard({
           </div>
         )}
 
+        {/* ONE step. The four-step walkthrough that used to live here was the
+            friction: a numbered list is a promise that this will take a while,
+            and the first real customer read it and left without installing.
+            Everything it explained now happens either automatically or inside
+            the app, after the first dictation, when it actually means something. */}
         {hasAccess && (
-          <div className="mt-6">
-            <Walkthrough />
+          <div className="mt-8 rounded-3xl border-2 border-rose bg-card p-10 text-center shadow-glow">
+            <h2 className="font-display text-2xl text-ink">Install NessoTalk</h2>
+            <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted">
+              It opens by itself and walks you through the two permissions your
+              Mac asks for. You will be talking about thirty seconds from now.
+            </p>
+            <a
+              href="/api/download?platform=mac"
+              className="mt-7 inline-block rounded-xl bg-rosedark px-12 py-4 text-lg font-semibold text-white transition hover:bg-rosepress"
+            >
+              Install for Mac
+            </a>
+            <p className="mt-4 text-xs text-muted">
+              Already installed on another Mac? Open NessoTalk there and choose
+              Sign in. There is nothing to copy across.
+            </p>
           </div>
         )}
 
-        <div className="mt-6 rounded-3xl border border-line bg-card p-8">
-          <h2 className="font-display text-xl text-ink">Your license key</h2>
-          <p className="mt-1 text-sm leading-6 text-muted">
-            This is what your subscription actually is: the key that opens the
-            engine.{" "}
-            {hasAccess
-              ? "The install above already carries it, so you only need to copy it when you are setting up another computer."
-              : "It stays yours while your access is paused, and starts working again the moment you subscribe."}{" "}
-            To use it on another computer, paste it into Settings in the app,
-            under &quot;Your license key&quot;, then click Save. Good for one Mac,
-            one Windows PC, and one iPhone.
-          </p>
-          <button
-            onClick={copyKey}
-            className="mt-4 flex w-full items-center justify-between rounded-xl border border-line bg-paper px-4 py-3 font-mono text-sm text-ink hover:border-rose"
-          >
-            <span className="truncate">{licenseKey}</span>
-            {copied ? (
-              <Check className="h-4 w-4 shrink-0 text-rose" />
-            ) : (
-              <Copy className="h-4 w-4 shrink-0 text-muted" />
-            )}
-          </button>
-        </div>
+        {/* The licence key used to be shown here with instructions for pasting
+            it into Settings. There is nothing to paste any more: the install
+            carries it, and a second Mac signs in through the browser. Showing a
+            key at all invites people to think they have to do something with it. */}
 
         {/* During a live trial the ask stays quiet and sits last. The customer
             has not felt the product yet, so pushing checkout above setup is how

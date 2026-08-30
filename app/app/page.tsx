@@ -28,7 +28,6 @@ export default async function AppPage() {
       uid={user.id}
       plan={profile?.plan ?? "trial"}
       daysLeft={daysLeft}
-      licenseKey={profile?.license_key ?? ""}
     />
   );
 }
