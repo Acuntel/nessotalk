@@ -24,7 +24,7 @@ SIGN_ID=6B25C06943AE83C0D40432F365AAD5834E42C45B
 case "$1" in
   start)   launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; launchctl kickstart -p "$DOMAIN/$LABEL" ;;
   stop)    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null && echo "stopped" ;;
-  signin)  open "nessotalk://signin" && echo "Opening your browser to connect this Mac to your YapperTalk account." ;;
+  signin)  open "yappertalk://signin" && echo "Opening your browser to connect this Mac to your YapperTalk account." ;;
   restart) launchctl kickstart -k "$DOMAIN/$LABEL" && echo "restarted" ;;
   call)
     # Toggle call-mode in the config (no rebuild): disables/aggressive-denoises for
@@ -86,7 +86,7 @@ case "$1" in
     else echo "parakeet OFF — whisper only (restarted)"; fi
     ;;
   cloud)
-    # Toggle the hosted NessoTalk engine (v8.17 cloud pivot). ON = transcribe
+    # Toggle the hosted YapperTalk engine (v8.17 cloud pivot). ON = transcribe
     # on our engine, local whisper as automatic fallback. OFF = all-local.
     # Same shape as `ptt call`.
     cfgf="$DIR/config"
@@ -180,14 +180,14 @@ SEED
     echo "rebuilt + restarted. Watch: ptt log"
     ;;
   update)
-    # Pull the newest signed build from nesso.tech using the licensed key that
+    # Pull the newest signed build from yappertalk.com using the licensed key that
     # is already in the config, then restart. No reinstall, no re-download of
     # the speech models.
     KEY=$(grep -E '^LICENSE_KEY=' "$DIR/config" | tail -1 | cut -d= -f2)
-    if [ -z "$KEY" ]; then echo "No license key in $DIR/config. Sign in at nesso.tech."; exit 1; fi
+    if [ -z "$KEY" ]; then echo "No license key in $DIR/config. Sign in at yappertalk.com."; exit 1; fi
     TMP=$(mktemp -d)
     echo "downloading the latest build..."
-    if ! curl -fsSL -H "x-license-key: $KEY" "https://nesso.tech/api/update?platform=mac" -o "$TMP/nt.zip"; then
+    if ! curl -fsSL -H "x-license-key: $KEY" "https://app.yappertalk.com/api/update?platform=mac" -o "$TMP/nt.zip"; then
       echo "Could not reach the update server, or your subscription is not active."; rm -rf "$TMP"; exit 1
     fi
     unzip -qo "$TMP/nt.zip" -d "$TMP" || { echo "The downloaded file was not readable."; rm -rf "$TMP"; exit 1; }
@@ -270,5 +270,87 @@ SEED
     echo "resetting coreaudiod (it will respawn in ~1s)…"
     sudo killall coreaudiod && echo "done — tap Right ⌘ to dictate" || echo "failed — reboot if it persists"
     ;;
-  *) echo "usage: ptt {start|stop|restart|call [on|off]|status|log|build|devices|miccheck|server [status|log|restart|stop|start|sync]|reset-perms|fixaudio}" ;;
+  uninstall)
+    # A consumer app has to have a clean way out, and it has to be honest about
+    # the two things it cannot remove: the macOS privacy grants, which only the
+    # user can revoke, and the subscription, which lives on our servers and
+    # keeps billing until it is cancelled on the site.
+    cat <<'WARN'
+
+  This removes YapperTalk from this Mac:
+
+    · stops it and removes it from login
+    · deletes ~/.dictation, including your settings, custom words,
+      snippets and history
+
+  It does NOT cancel your subscription. Do that at yappertalk.com,
+  or you will keep being billed.
+
+WARN
+    printf "  Type REMOVE to continue: "
+    read -r confirm
+    [ "$confirm" = "REMOVE" ] || { echo "  Cancelled. Nothing was changed."; exit 0; }
+
+    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null
+    launchctl bootout "$DOMAIN/com.brady.ptt-whisper-server" 2>/dev/null
+    rm -f "$PLIST" "$HOME/Library/LaunchAgents/com.brady.ptt-whisper-server.plist"
+
+    LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+    [ -x "$LSREGISTER" ] && "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true
+
+    rm -rf "$DIR" /tmp/ptt_last.wav /tmp/ptt_rec_* /tmp/ptt_chunk* /tmp/ptt_caption* 2>/dev/null
+
+    printf "  Also delete the downloaded speech models in ~/.whisper-models? [y/N] "
+    read -r models
+    case "$models" in
+      y|Y) rm -rf "$HOME/.whisper-models"; echo "  Models deleted." ;;
+      *)   echo "  Models kept in ~/.whisper-models." ;;
+    esac
+
+    cat <<'BYE'
+
+  YapperTalk is removed.
+
+  Two leftovers only you can clear, both harmless:
+    · System Settings ▸ Privacy & Security still lists it under
+      Microphone and Accessibility. Untick or remove it there.
+    · Your subscription, if you have not cancelled it at yappertalk.com.
+
+  Sorry to see you go. If something broke, hello@yappertalk.com.
+
+BYE
+    ;;
+  *)
+    cat <<'USAGE'
+usage: ptt <command>
+
+  Everyday
+    start | stop | restart      run the daemon
+    status                      is it running?
+    log                         follow what it is doing
+    signin                      connect or change the account
+    update                      pull the newest signed build
+    uninstall                   remove it from this Mac
+
+  Dictation behaviour
+    call [on|off]               call mode: denoise hard for speakerphone
+    whisper [on|off]            whisper mode: dictate very quietly
+    parakeet [on|off]           local Parakeet engine (English)
+    cloud [on|off]              hosted engine first, local as fallback
+    moderules                   per-app mode rules
+
+  Your words
+    learn                       custom dictionary
+    snippets                    voice snippets
+    privacy                     what is stored, and where
+    purge                       erase history, retained audio and the log
+
+  When something is wrong
+    devices | miccheck          audio input troubleshooting
+    reset-perms                 wipe and re-grant Mic + Accessibility
+    fixaudio                    reset a wedged coreaudiod
+    server [status|log|restart|stop|start|sync]
+    build                       recompile from source (developers)
+USAGE
+    ;;
 esac

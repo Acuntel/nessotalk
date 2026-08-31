@@ -121,7 +121,7 @@ struct Config {
     // to llama). sonnet-5 for detail-preserving expansion; claude-haiku-4-5 is
     // the faster/lighter fallback if polish feels slow.
     var polishModel = "claude-sonnet-5"
-    // ---- NessoTalk v8.0 (Wispr-parity) ----
+    // ---- YapperTalk v8.0 (Wispr-parity) ----
     // Decode language: "en", "es", ... or "auto" (whisper detects, can switch
     // mid-recording). Live captions stay English (caption model is English-only).
     var language = "en"
@@ -148,21 +148,21 @@ struct Config {
     // pill. The click writes it here, launch reads it back, so the pick
     // survives a full quit/reopen. "ask" = nothing remembered yet.
     var selectedMode = "ask"
-    // v8.2 lease: customer builds carry a LICENSE_KEY (from the nesso.tech
+    // v8.2 lease: customer builds carry a LICENSE_KEY (from the yappertalk.com
     // dashboard). The daemon checks in on launch + every 12h; revoked/expired
     // accounts disarm recording. Empty key = enforcement off (dev build).
     var licenseKey = ""
-    var licenseUrl = "https://nesso.tech/api/license"
+    var licenseUrl = "https://app.yappertalk.com/api/license"
     // Server-side AI proxy: with a license key set, the rewrite modes run on
-    // nesso.tech under our API key instead of needing the customer's own.
+    // yappertalk.com under our API key instead of needing the customer's own.
     // A cracked copy can't reach it without an active license.
-    var polishProxyUrl = "https://nesso.tech/api/polish"
-    // v8.17 cloud pivot: transcription runs on NessoTalk's own hosted engine,
+    var polishProxyUrl = "https://app.yappertalk.com/api/polish"
+    // v8.17 cloud pivot: transcription runs on YapperTalk's own hosted engine,
     // license-gated on every request. Local whisper stays as the automatic
     // fallback so dictation keeps working through any engine or network
     // outage — cloud-first, never cloud-only.
     var cloud = true
-    var transcribeUrl = "https://nessotalk-engine-production.up.railway.app/transcribe"
+    var transcribeUrl = "https://yappertalk-engine-production.up.railway.app/transcribe"
     // Key code of the modifier that starts and stops dictation.
     var hotkey: UInt16 = 54
     // Producer talk key (music mode): tap -> record, tap -> the words land in
@@ -339,7 +339,7 @@ let LEFT_CMD_BIT: UInt = 0x08            // NX_DEVICELCMDKEYMASK
 // the decoder toward the name list at the expense of ordinary words — the
 // 2026-07-27 45-name version made dictation slower AND worse. Spelling/casing
 // repair belongs in the glossary below (regex post-fix, zero decode cost).
-let VOCAB_PROMPT = "Notes on software projects: Nesso, StolenMule, KARL, Meemoo, Sabify, Supabase, Vercel, Railway, Tailwind, Next.js, TypeScript, Capacitor, Twilio, Resend, Anthropic, Claude, Bedrock, Postgres, Higgsfield, ElevenLabs, LawPay, Smokeball, Redfin, Zillow, IOLTA, daemon, Wispr Flow."
+let VOCAB_PROMPT = "Notes on software projects: Yapper, StolenMule, KARL, Meemoo, Sabify, Supabase, Vercel, Railway, Tailwind, Next.js, TypeScript, Capacitor, Twilio, Resend, Anthropic, Claude, Bedrock, Postgres, Higgsfield, ElevenLabs, LawPay, Smokeball, Redfin, Zillow, IOLTA, daemon, Wispr Flow."
 
 // ===================== self-learning dictionary + snippets =====================
 // learned-words.txt: one entry per line, `Canonical|variant1,variant2` (variants
@@ -453,7 +453,7 @@ func fuzzyLearnedPass(_ input: String) -> String {
                 continue
             }
             // Split-word catch: whisper renders one-word names as two words
-            // ("nesso talk" for NessoTalk). For a one-word canonical, try
+            // ("yapper talk" for YapperTalk). For a one-word canonical, try
             // joining two adjacent words — allowed only when at least one of
             // them is not ordinary English, so real phrases stay untouched.
             if k == 1, i + 1 < tokens.count {
@@ -679,7 +679,7 @@ func formatTranscript(_ raw: String) -> String {
     // 4b. Custom dictionary, Wispr-style: case-fix Brady's proper nouns that
     //     whisper hears right but casings wrong (or slightly misspells).
     let glossary: [(String, String)] = [
-        ("(?i)\\bn[ei]s+o+\\b", "Nesso"),
+        ("(?i)\\bn[ei]s+o+\\b", "Yapper"),
         ("(?i)\\bstolen ?mule\\b", "StolenMule"),
         ("(?i)\\bsupabase\\b", "Supabase"),
         ("(?i)\\bvercel\\b", "Vercel"),
@@ -724,7 +724,7 @@ func formatTranscript(_ raw: String) -> String {
         // Same test pass: own product name split into two words / lowercased
         // by both engines with no glossary entry catching it at all.
         ("(?i)\\byapper[- ]?talk\\b", "YapperTalk"),
-        ("(?i)\\bnesso ?talk\\b", "NessoTalk")
+        ("(?i)\\byapper ?talk\\b", "YapperTalk")
     ]
     for (pattern, replacement) in glossary {
         text = regexReplace(text, pattern, replacement)
@@ -813,12 +813,12 @@ func formatTranscript(_ raw: String) -> String {
 }
 
 
-// ===================== device sign-in (PKCE + nessotalk:// handoff) =========
+// ===================== device sign-in (PKCE + yappertalk:// handoff) =========
 // Replaces "copy a licence key out of a web page and paste it into Settings".
 //
 // The app invents a verifier, sends only its hash to the website, opens the
 // browser, and the website hands back a single-use code through the
-// nessotalk:// URL scheme. The app then trades that code plus the verifier for
+// yappertalk:// URL scheme. The app then trades that code plus the verifier for
 // the licence key over HTTPS.
 //
 // The deep link deliberately carries NOTHING secret. Any app on the machine can
@@ -862,7 +862,13 @@ enum DeviceAuth {
             guard let data = data,
                   let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let url = j["verify_url"] as? String, let u = URL(string: url) else {
-                log("✕ sign-in could not start (no answer from \(apiBase()))")
+                // No answer from the device endpoint. Never leave someone
+                // staring at a pill that told them a browser was opening: send
+                // them to the site, where they can sign in the ordinary way.
+                log("✕ sign-in could not start (no answer from \(apiBase())) — opening the site instead")
+                DispatchQueue.main.async {
+                    if let home = URL(string: apiBase()) { NSWorkspace.shared.open(home) }
+                }
                 return
             }
             // Logged in full on purpose. If the browser fails to open, or opens
@@ -878,10 +884,10 @@ enum DeviceAuth {
         }.resume()
     }
 
-    /// Called when macOS routes nessotalk://auth?code=... back to us.
+    /// Called when macOS routes yappertalk://auth?code=... back to us.
     static func handle(url: URL) {
-        guard url.scheme == "nessotalk" else { return }
-        // nessotalk://signin lets anything on the machine ask the running app to
+        guard url.scheme == "yappertalk" else { return }
+        // yappertalk://signin lets anything on the machine ask the running app to
         // start a sign-in: the dashboard, the installer, or `ptt signin`. The
         // app is the only place the verifier ever exists, so the flow has to
         // begin here rather than in whatever process asked.
@@ -954,6 +960,37 @@ func showAccessAlert(_ reason: String) {
     }
 }
 
+
+// Pressing the key with no account is the most common first thing a new
+// customer does, so it is the moment the product either explains itself or
+// looks broken. It does three things in order: shows the pill so they see what
+// they installed, says in the pill why nothing was recorded, and opens the
+// place that fixes it.
+//
+// The browser opens at most once a minute. Leaning on the key, or a stuck
+// modifier, must not stack up twenty tabs.
+var lastSignInNudge = Date.distantPast
+
+func nudgeToConnectAccount(_ pillMessage: String, destination: SignInDestination) {
+    ui.showLockedOut(pillMessage)
+    guard Date().timeIntervalSince(lastSignInNudge) > 60 else { return }
+    lastSignInNudge = Date()
+    switch destination {
+    case .signIn:
+        // The real handoff: PKCE start, browser, and the licence comes back
+        // over yappertalk://. begin() falls back to the site on its own if the
+        // server cannot be reached.
+        DeviceAuth.begin()
+    case .account:
+        // Already signed in once, so send them to the page that shows why the
+        // subscription stopped rather than starting a fresh sign-in.
+        if let u = URL(string: DeviceAuth.apiBase() + "/app") {
+            NSWorkspace.shared.open(u)
+        }
+    }
+}
+
+enum SignInDestination { case signIn, account }
 
 // ===================== the moment it makes sense ==========================
 // Explaining dictation BEFORE somebody has tried it is a numbered list they
@@ -1955,7 +1992,7 @@ enum DeliverMode: CaseIterable {
 let SETTINGS_MODES = ["summarize", "professional", "normal", "agent", "expand"]
 
 // ===================== Brand palette =====================
-// The warm clay/cream tokens from the yappertalk.com / nesso.tech design
+// The warm clay/cream tokens from the yappertalk.com / yappertalk.com design
 // system (tailwind.config.ts: paper/card/line/muted/ink/rose/rosedark), so
 // every window this app puts on screen — the HUD pill, the mode explainer,
 // the after-stop choice popup — reads as the same product as the site
@@ -2068,7 +2105,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
         y -= 46
         // ACCOUNT. There is no key to paste any more: signing in happens in the
-        // browser and the licence arrives through nessotalk://. The field below
+        // browser and the licence arrives through yappertalk://. The field below
         // is still CREATED and still loaded and saved, so an existing key is
         // never lost, it is simply not something anyone should have to look at.
         v.addSubview(label("Account", y, bold: true))
@@ -2300,7 +2337,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         }
         statusLabel.stringValue = licenseValid
             ? "Your license is active."
-            : "No active license. Visit nesso.tech."
+            : "No active license. Visit yappertalk.com."
     }
 
     // First click arms it, second click listens for the key you press next.
@@ -2587,6 +2624,8 @@ final class UIController: NSObject, NSWindowDelegate {
     // the mode explainer (as opposed to the Settings window, which manages its
     // own pause via windowWillClose).
     var modePauseActive = false
+    // Takes the no-account pill back down; see showLockedOut.
+    var lockedOutTimer: Timer?
 
     func setup() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -2821,6 +2860,45 @@ final class UIController: NSObject, NSWindowDelegate {
         panel?.orderOut(nil)
         toggleMenuItem?.title = "Start Dictation (Right ⌘)"
         refreshIdleOrBusy()
+    }
+
+    // Somebody who has not connected an account still gets to SEE the thing
+    // they downloaded. Tapping the key puts the REAL pill on screen — same
+    // waveform, same mode chips, same place it will always appear — and the
+    // hint line says why it is not going to record this time. A silent menu-bar
+    // icon and a modal alert taught them nothing about what they installed, and
+    // the pill is the product; showing it once is worth more than describing it.
+    //
+    // It is deliberately not interactive: the waveform stays dead, so nobody
+    // mistakes this for a recording that is quietly failing.
+    func showLockedOut(_ message: String) {
+        DispatchQueue.main.async {
+            guard let p = self.panel else { return }
+            let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }
+                ?? NSScreen.main
+            self.suppressFrameTracking = true
+            if let custom = self.customHUDFrame {
+                p.setFrame(custom, display: true)
+            } else if let f = screen?.visibleFrame {
+                p.setFrame(NSRect(x: f.midX - 216, y: f.minY + 28,
+                                  width: 432, height: 88), display: true)
+            }
+            self.suppressFrameTracking = false
+            self.layoutHUD()
+            self.waveform?.stop()
+            self.elapsedField?.stringValue = "--:--"
+            self.setCaption(message)
+            self.refreshModeButtons()
+            p.orderFrontRegardless()
+
+            self.lockedOutTimer?.invalidate()
+            self.lockedOutTimer = Timer.scheduledTimer(withTimeInterval: 7.0, repeats: false) { [weak self] _ in
+                guard let self = self, self.recordStart == nil else { return }
+                self.panel?.orderOut(nil)
+                self.resetHint()
+                self.elapsedField?.stringValue = "0:00"
+            }
+        }
     }
 
     // Settings pause. The elapsed clock is rewound by however long the pause
@@ -3569,7 +3647,7 @@ func runWhisperViaServer(wav: String, timeout: Double) -> String? {
     return text
 }
 
-// v8.17: the hosted NessoTalk engine. Same multipart contract as the resident
+// v8.17: the hosted YapperTalk engine. Same multipart contract as the resident
 // server plus the license headers its gate requires; machine/platform ride
 // along for seat binding, and the engine discards audio after decoding. Any
 // failure returns nil and the local path takes over, so Brady (and every
@@ -3835,7 +3913,7 @@ func raceModes(for picked: DeliverMode, defaultMode: String) -> [String] {
 
 // Returns the polished text, or nil when the caller should paste the raw
 // transcript instead (no backend, timeout, or an untrustworthy rewrite).
-// Licensed transport: the rewrite runs on nesso.tech under OUR API key, gated
+// Licensed transport: the rewrite runs on yappertalk.com under OUR API key, gated
 // on a live license. Customers never need their own key, and a cracked copy
 // gets nothing here (402) — the capability was never on their machine.
 // mode: "summarize" | "professional" | "command".
@@ -4532,10 +4610,10 @@ func polishForText(_ text: String, context: String = "") -> String? {
 }
 
 // ===================== lease check-in (customer builds) =====================
-// With a LICENSE_KEY set, the daemon phones nesso.tech on launch and every 12h,
+// With a LICENSE_KEY set, the daemon phones yappertalk.com on launch and every 12h,
 // sending this machine's id (seat binding). The reply is SIGNED (Ed25519) with
 // a private key that only the server holds, and verified here against the
-// public key below — so redirecting nesso.tech to a fake local server that
+// public key below — so redirecting yappertalk.com to a fake local server that
 // answers {"valid":true} does NOT work: the attacker cannot forge a signature.
 // The last valid token is cached and honors its own expiry offline. The server
 // issues 24 hours: this product is "we grant it and we take it away", so a long
@@ -4543,7 +4621,7 @@ func polishForText(_ text: String, context: String = "") -> String? {
 // Invalid/revoked/expired/seat-capped -> recording disarms (an in-flight
 // session still finishes; we never eat words mid-recording). Empty key = dev.
 let LICENSE_PUBKEY_B64 = "DgOqB8kIOGQDePmlGSFcbZVVbujNZ9CVM+XkPFSJZjw="
-let APP_VERSION = "8.28"
+let APP_VERSION = "8.29"
 var updateAvailable = ""   // newest version the server reports, empty when current
 var licenseValid = true
 let LICENSE_TOKEN_PATH = "\(HOME)/.dictation/.license_token"
@@ -4609,7 +4687,7 @@ func checkLicense() {
             return
         }
         licenseValid = false
-        log("✕ no license key — sign in at nesso.tech and download your copy to activate")
+        log("✕ no account connected — tap Right ⌘ to sign in, or run: ptt signin")
         return
     }
     let p = Process()
@@ -4640,7 +4718,7 @@ func checkLicense() {
     } else {
         licenseValid = false
         let why = (obj["reason"] as? String) ?? "signature rejected"
-        log("✕ license inactive (\(why)) — dictation disarmed, manage it at nesso.tech")
+        log("✕ license inactive (\(why)) — dictation disarmed, manage it at yappertalk.com")
     }
 }
 
@@ -5645,6 +5723,7 @@ final class Dictation: NSObject {
             // recording they were trying to start.
             if !cfg.licenseKey.isEmpty {
                 log("· dictation blocked — re-checking the subscription before giving up")
+                ui.showLockedOut("Checking your subscription…")
                 DispatchQueue.global().async {
                     checkLicense()
                     DispatchQueue.main.async {
@@ -5654,7 +5733,9 @@ final class Dictation: NSObject {
                             self.startRecording()
                         } else {
                             playSound("Basso")
-                            showAccessAlert("Your subscription is not active, so dictation is switched off. Everything you set up is still here and comes straight back when it is.")
+                            nudgeToConnectAccount(
+                                "Subscription inactive — opening your account page",
+                                destination: .account)
                         }
                     }
                 }
@@ -5662,7 +5743,9 @@ final class Dictation: NSObject {
             }
             log("✕ recording blocked — no account connected")
             playSound("Basso")
-            showAccessAlert("This Mac is not connected to a YapperTalk account yet. Signing in takes one click and there is nothing to type.")
+            nudgeToConnectAccount(
+                "Connect your account to use YapperTalk — opening your browser",
+                destination: .signIn)
             return
         }
         // AVAudioEngine.start() can block in audio-server XPC while TCC mic
@@ -6602,7 +6685,7 @@ if cliArgs.count >= 3, cliArgs[1] == "--caption-sim" {
 // ===================== Main =====================
 // NOTHING here may exit(1). launchd runs this with KeepAlive, so a fatal exit is
 // not a clean failure, it is an invisible crash-loop: no menu bar icon, no window,
-// no message, forever. Customer builds transcribe on the NessoTalk engine and
+// no message, forever. Customer builds transcribe on the YapperTalk engine and
 // deliberately ship with no local decode model at all, so a missing whisper-cli or
 // a missing local model is the NORMAL state and must degrade, never terminate.
 let localDecodeReady = FileManager.default.fileExists(atPath: WHISPER)
@@ -6660,6 +6743,18 @@ if cliArgs.count >= 2, cliArgs[1] == "--settings-demo" {
 // Top-level Swift initializes globals in source order, not lazily, so a CLI
 // branch placed above them runs against uninitialized memory and segfaults
 // inside the first method it calls.
+if cliArgs.contains("--locked-demo") {
+    // Shows the no-account pill without needing an unlicensed machine, so the
+    // wording and the layout can be checked at a glance. Same reason
+    // --explain-demo exists.
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    ui.setup()
+    ui.showLockedOut("Connect your account to use YapperTalk — opening your browser")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 12) { exit(0) }
+    app.run()
+}
+
 if cliArgs.count >= 2, cliArgs[1] == "--explain-demo" {
     // Shows the after-first-dictation explainer without needing a real
     // recording, so the wording can be checked at a glance.
@@ -6753,7 +6848,7 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)   // no Dock icon, but menu-bar item still shows
 ui.setup()
 
-// nessotalk:// handoff from the browser. Registered BEFORE app.run() so a link
+// yappertalk:// handoff from the browser. Registered BEFORE app.run() so a link
 // that lands while we are still starting up is not dropped on the floor.
 final class URLSchemeHandler: NSObject {
     @objc func handle(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
